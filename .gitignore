@@ -4,3 +4,4 @@
 .chrome-profile/
 .DS_Store
 *.log
+.deploy-check/

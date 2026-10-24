@@ -4,6 +4,8 @@
 
 纯前端、零依赖，直接打开 `index.html` 即可使用，数据只保存在浏览器本地。
 
+**在线体验：[https://kibiandkimi.github.io/focus/](https://kibiandkimi.github.io/focus/)**
+
 ![Focus 桌面端](screenshots/01-setup-dark.png)
 
 ## 它如何计时
