@@ -190,3 +190,128 @@
 3. 记录列表日期分组未做粘性头；若需要，需同时处理半透明卡面背景。
 4. 目标达成后主操作仍为暖橙「暂停」、绿色只用于状态表达，这是有意避免「绿色=已完成」的误读。
 5. 长任务名在记录卡内仍为单行省略号；会话卡内为两行截断，符合信息层级取舍。
+
+---
+
+## 8. v3 视觉迭代：任务清单 / 单轮专注 / 任务耗时与专注效率
+
+> 本节记录 2026-10-24 v3 需求后的第三轮视觉迭代：新增「任务清单 + 单轮专注」两层模型、任务耗时与专注均值对比、效率记录。v1、v2 内容保留为历史。
+
+### 8.1 范围、方法与基线
+
+- 范围：仅 `styles.css`（+ 本文件与 `.design/`）；**未修改** `index.html` / `app.js` / `focus-core.js`，无 DOM 变更需求。
+- 源码基线（截图对应）：`index.html 743610dd…`、`app.js 6f5d20f3…`、`focus-core.js a5b2b88a…`；`styles.css` 由 Lead 的 v3 基础版 `38add58d…` 打磨为定稿 `e34281dd…`（本轮只改这一个样式文件；`audit.json` 内 `sourceHashes` 为实际采样版本）。
+- 工具：新增 `.design/shots-v3.cjs`（CDP 9445；`Page.addScriptToEvaluateOnNewDocument` 打补丁 `Date.now()` 以确定性快进专注轮次；v3 schema 种子）。同一驱动分别对「基础版 styles.css」与「定稿 styles.css」各跑一遍：
+  - `.design/before-v3/`：71 张截图 + `audit.json`（42 次审计）
+  - `.design/after-v3/`：71 张截图 + `audit.json`（42 次审计、39 项自动检查）
+  - 基础版/定稿样式留档：`.design/styles-baseline-v3.css`、`.design/styles-final-v3.css`
+- 审计维度：逐元素横向越界、非设计性文本截断（`text-overflow: ellipsis` 与滚动容器豁免）、WCAG 对比度（渐变 + 透明度逐层合成，大字号 3:1 / 常规 4.5:1）、可交互目标尺寸、关键容器几何、任务列表内部滚动与首屏完整行数、会话卡片内容底边 vs 卡底（裁切）、4 统计列数、记录行高 / 差异是否换行 / 值是否截断、效率对比行重叠、弹窗 chips 行数、桌面两栏同底、`prefers-reduced-motion`。
+- 视口：1440×900、1024×768、390×844；深色与浅色；`(hover:hover)/(pointer:fine)` 与触屏 `(hover:none)/(pointer:coarse)` 分别用 Blink flag + CDP touch emulation 精确模拟。
+
+### 8.2 打磨前后（审计数据）
+
+| 指标 | 基础版（before-v3） | 定稿（after-v3） |
+| --- | --- | --- |
+| 自动检查失败 | **12** | **0**（39/39 通过） |
+| 对比度不达标 | **11 处** | **0 处** |
+| 文本截断 / 横向溢出 / 越界元素 | 0 / 0 / 0 | 0 / 0 / 0 |
+| 任务表单高度 @1440 / @1024 / @390 | 296 / 282 / 430 px | **177 / 170 / 357 px** |
+| 任务列表首屏完整可见行 @1440 / @1024 | 3/6 / 2/6 | **6/6 / 5/6** |
+| 两组时长 chips 单行（各 5 个）@1440 / @1024 | 否（各 2 行） | **是** |
+| 1024×768 整页滚动 | 有（scrollHeight 778 > 768） | **无**（一屏） |
+| 行内「开始专注」主色填充按钮 | 6 个（每行都有，过亮） | **0 个**；仅活动任务「继续专注」1 个 |
+| 会话暂停态内容溢出卡片 @1440 / @1024 | 有（758/745、739/711，被裁切） | **无**（767/767、714/729） |
+| 会话暂停态 390 卡片底 / 控制条底（vh=844） | 835 / 764 | **721 / 663**（一屏内可操作） |
+| 开始专注弹窗 chips 行数 / 宽度 | 2 行 / 440px | **1 行 / 456px** |
+| 完成记录行高 / 差异换行 / 首屏完整可见 | 126px / 6 处 / 1 条 | **113px / 0 处 / 2 条** |
+| 侧栏「今日概览」卡高度 @1440 / @1024 | 451 / 451 px | **392 / 352 px** |
+| 长计时 `1:13:12` 宽度 / 内盘 @1440 | 210 / 261（完整） | 192 / 258（完整；390 175/193） |
+
+### 8.3 主要视觉改动
+
+#### 8.3.1 任务清单页（信息层级与按钮层级）
+
+- 标题收敛：eyebrow 10.5px/0.22em、标题 `clamp(25px, 2.45vw, 31px)`、副标题 13px/1.65（基础版标题 38px 偏高）；卡片内距 26/30/18。
+- **Composer 重构**（纯 CSS Grid，无 DOM 改动）：任务名称输入 + 添加按钮同一行（均 48px 高），两组时长 chips 各占一行、左侧固定标签列 104px；表单高度 296 → **177px**，任务列表因此多出约 2 屏行数。
+- chips：34px 高 / 12px 字号（桌面）、自定义输入 46px 宽；1440 与 1024 下两组 chips（各 5 个）均为单行，无横向溢出。
+- 列表：行 padding 9/10、标题 13.5px/600、meta 11px faint；列表 `flex:1`、`overflow-y:auto`、`scrollbar-gutter:stable`——9 条任务时列表内部滚动（scrollHeight 534 / clientHeight 397），页面不滚动。
+- **主/次按钮层级**：`.task-row .task-start` 默认是描边次按钮（透明底 + hairline 边框 + muted 文字）；只有 `.task-row.is-active .task-start`（「继续专注」）保留主色渐变；其他被阻塞的开始按钮 `aria-disabled` + 50% 透明；删除按钮透明底、hover/focus 显现；行 hover 也会点亮次级开始按钮。
+- 活动任务行：`accent-ghost` 底 + `accent-border` 边框 + 「暂停中 · 已专注 X · N 轮」进度行，信息与清单其余行区分明确。
+- 空状态：图标 38px、标题/提示居中。
+
+#### 8.3.2 开始专注弹窗
+
+- 宽度 440 → 456px、内距 24、圆角 22；标题 16px、任务名 14px、meta 11.5px、label 10.5px。
+- 5 个「本轮预期专注」chips（含自定义）在桌面/平板单行显示（11.5px / 32px 高）；继续态额外显示「已专注 X · N 轮 · 任务暂停中」。
+- 按钮 40px 高、13px；主按钮阴影收紧（0 10px 24px -16px），避免与页面主按钮抢层级。
+
+#### 8.3.3 专注会话页（一屏不裁切）
+
+- 桌面：环形 300px、计时 `clamp(44px,5vw,64px)`、4 个统计等分（strong 16.5 / label 10.5）；暂停态「下一轮预期专注」面板（chips 30px）、「继续」主按钮 +「完成任务」次按钮 +「返回任务清单」文字链；运行态 3 按钮。
+- **修复基础版暂停态裁切**：1440×900 内容底边 834 < 卡底 853；1024×768 714 < 729；390×844 卡片整体 721px（<844），控制条底 663，一屏内可操作。短屏（≤800px 高）媒体查询把环形压到 252px 并收紧统计/面板/按钮间距。
+- 移动端：环形 `min(224px, 61vw)`、计时 46px、4 统计变 2×2、暂停态控制 2 等分、下一轮面板 chips 10.5px 不溢出；toast 停靠在顶栏下方，不再遮挡「继续 / 完成任务」。
+- 状态：本轮达标保持运行（环、数字、phase 变绿，副标题显示「已超出 mm:ss」）；暂停态冻结并压暗；长任务名 2 行截断 + ellipsis。
+- 长计时 `1:13:12` 在 1440/1024/390 均完整落在圆环内盘（192/258、192/217、175/193）。
+
+#### 8.3.4 侧栏「今日概览」与效率对比
+
+- 2×2 统计：数字 24px、单位 11px、说明 10.5px，并补充 10px 小字（平均每轮「预期 X」、完成任务「共 N 轮」）；卡高 451 → 392（1440）/352（1024），把高度让给完成记录。
+- 效率对比改为两行两行式条目：第一行「标签 + 右侧差异（快/慢）」、第二行「实际 / 预期」，避免一行挤压导致的换行/重叠；差异用克制的绿（更优）/暖橙（更慢），中性「持平」用 faint。
+- 近 7 天柱状图：柱高 32px、列距 6px，今天列 `accent-ghost` + 边框强调；空数据以 3px 短柱提示。
+- 浅色对比度修复：选中 chip 文字改用 `--accent-strong`（4.18 → **5.89**）；活动任务行 meta 改 `--text-muted`（4.48 → 6.31）。
+
+#### 8.3.5 完成记录（两行对比、可读不截断）
+
+- 行结构：左侧 5px 圆点、任务名 12.5px、meta（时间段 · N 轮 · 总专注）10.2px，随后两条对比：
+  - 「任务耗时」+ 右侧差异（快/慢）一行，「实际 X / 预期 Y」一行；
+  - 「专注均值」+ 右侧差异（+/-/持平）一行，「平均 X / 轮 · 预期 Y」一行。
+- `.rm-value` 允许换行、不截断；`.rm-delta` 固定右对齐，不再被挤到下一行（差异换行 6 处 → **0 处**）；行高 126 → **113px**。
+- 记录卡内部滚动（7 条时 scrollHeight 860 / clientHeight 299）；删除按钮 24px、hover/focus 显现，触屏常显 0.55；空状态文案沿用「完成任务后，任务耗时与每轮专注的预期/实际会记录在这里。」
+
+#### 8.3.6 弹窗 / Toast / 交互状态 / 可访问性
+
+- 删除任务、清空记录、完成任务保存弹窗统一 456px 宽、22px 圆角、40px 按钮；危险操作用 `btn-danger`，其余主按钮阴影收紧。
+- Toast：桌面右下 24px；移动端改为顶栏下方通栏停靠，避免遮挡暂停/继续；删除记录 Toast 带「撤销」。
+- focus-visible：全局 2px accent 描边；输入框用 accent 边框 + 4px halo；实测 chip / 添加按钮 / 任务开始按钮 / 记录删除按钮均获得 ≥2px 可见焦点环。
+- hover：任务行 / 记录行底色、chip 边框、按钮位移与亮度；`@media (hover:none)` 下取消位移动画并常显删除按钮。
+- reduced-motion：实测动画时长 1e-06s、iteration 1、彩带 `display:none`。
+- 移动端触控：图标按钮 42px、chips 36px、行内按钮 34px、任务/记录删除 32px、返回清单链接 32px；自定义分钟输入嵌于 36px chip 内（输入区 28px；下一轮面板内为 27px，属嵌入 chip 的次级输入）；桌面 1440/1024 两栏同底（卡底 853 = 侧栏底 853）。
+
+### 8.4 审计结论
+
+- **after-v3：42 个状态审计 / 71 张截图 / 39 项自动检查全部通过**；对比度失败 0、非设计性截断 0、横向溢出 0、越界元素 0、页面级滚动 0（1440/1024），桌面两栏同底。
+- 关键状态覆盖：任务空态 / 6 条与 9 条任务 / 活动任务行 / 9 条滚动 / 开始与继续弹窗 / 运行 / 本轮达标 / 暂停（含 1024 与 390）/ 暂停改下一轮 / 长计时 / 长任务名 / 记录 3 条与 7 条 / 记录空态 / 移动端侧栏 / 完成·删除·清空·放弃弹窗 / Toast 与 Toast 堆叠 / 键盘 focus / reduced-motion。
+- before-v3（同一驱动、基础版样式）复现了 12 项失败与 11 处对比度问题，见 `.design/before-v3/audit.json` 与截图。
+
+### 8.5 截图清单（`.design/after-v3/`，71 张 + `audit.json`）
+
+- 任务页：`tasks-empty-{dark,light}-{1440,1024,390}`、`tasks-list-{dark,light}-{1440,1024,390}`、`tasks-list-rows-{dark,light}-390`、`tasks-many-dark-1440`、`tasks-many-scrolled-dark-1440`、`tasks-active-{dark,light}-1440`、`hover-task-dark-1440`
+- 开始/继续弹窗：`modal-start-{dark,light}-{1440,390}`、`modal-start-dark-390`、`modal-resume-dark-1440`
+- 会话：`session-running-{dark,light}-1440`、`session-running-dark-{1024,390}`、`session-reached-{dark,light}-{1440,390}`、`session-paused-{dark,light}-{1440,1024,390}`、`session-paused-next45-dark-{1440,390}`、`session-paused-reached-{dark,light}-1440`、`session-longclock-dark-1440`、`session-longtask-dark-1440`、`session-longtask-{dark,light}-390`
+- 侧栏 / 记录：`records-{dark,light}-{1440,1024,390}`、`records-light-1440`、`records-many-dark-1440`、`hover-record-dark-1440`、`stats-{dark,light}-390`
+- 弹窗 / Toast：`modal-delete-task-dark-1440`、`modal-clear-{dark,light}-1440`、`modal-complete-dark-1440`、`modal-complete-{dark,light}-390`、`modal-discard-dark-1440`、`toast-dark-1440`、`toast-stack-dark-1440`
+- 焦点 / 动效：`focus-input-dark-1440`、`focus-chip-dark-1440`、`focus-addbtn-dark-1440`、`focus-task-start-dark-1440`、`focus-record-delete-dark-1440`、`reduced-motion-dark-1440`
+
+### 8.6 复现命令
+
+```bash
+# 定稿截图 + 审计（CDP 9445；需要 4173 预览服务）
+node .design/shots-v3.cjs after-v3
+
+# 打磨前基线（同一驱动，用留档的基础版样式 + 当前 DOM 副本，避免影响 4173）
+mkdir -p .design/baseline-app
+cp index.html app.js focus-core.js .design/baseline-app/
+cp .design/styles-baseline-v3.css .design/baseline-app/styles.css
+python3 -m http.server 4182 --bind 127.0.0.1 --directory .design/baseline-app &
+FOCUS_APP_URL=http://127.0.0.1:4182/index.html node .design/shots-v3.cjs before-v3
+```
+
+### 8.7 已知取舍与遗留
+
+1. 长任务名在任务行与记录行仍使用单行 ellipsis（`title` 属性可见全名）；移动端任务 meta 允许换行（数据可读优先，行高会不一致）。
+2. 390px 下两组时长 chips 各自自然换行（4 + 自定义）；开始弹窗在 390 仍保持 5 chips 单行。
+3. 1024×768 记录卡首屏完整显示 1 条对比（list 232px，可内部滚动）；1440 首屏 2 条。如希望小屏也显示 2 条，需要进一步压缩侧栏统计（当前已从 451 压到 352）。
+4. 运行/暂停切换时圆环尺寸不缩放（1440 300px / 短屏 252px / 390 224px），避免状态切换时布局跳动；运行态上下留白更大是刻意的「专注留白」。
+5. 会话卡 `overflow:hidden` 保留；未来若新增统计或文案，需同步收紧短屏媒体查询（当前 1440/1024/390 均无裁切）。
+6. 未改 HTML/JS：`.task-row` / `.start-modal` / `.next-focus` / `.record-metric` / `session-note` 等 Lead 新增结构全部保留，仅调整样式。
+7. 本轮截图对应 `app.js 6f5d20f3…`（2026-10-24 10:05）。若 Lead/QA 后续再改 `app.js` / `index.html`，应按 8.6 重跑截图与审计。

@@ -1,325 +1,328 @@
-# Focus 专注计时 — 独立 QA 报告（v2 语义）
+# Focus v3 — 独立 QA 报告（任务清单 / 单轮专注 / 任务耗时与专注分离）
 
-- 报告人：qa-verifier（独立 QA，不参与应用实现）
-- 测试对象：`/home/kibi/Work/Focus`（index.html / app.js / focus-core.js / styles.css）
-- 适用版本：**schema v2**（任务级目标、正计时、暂停计轮、不自动结束、记录实际/目标）
-- 最终验证快照：**styles.css 最后变更 2026-10-24T03:02:27Z**；最终验证运行 **03:04:02–03:04:40Z**，运行前后源码 hash 一致（`sha256` 见 §2）
-- 结论：**通过（PASS），无 P0 / P1 / P2 功能缺陷**。34 项单元测试 + 16 项端到端测试全部通过，0 条 console 错误、0 个未捕获异常、0 个阻塞式弹窗。4 条 P3 观察/已知取舍见 §7。
-
-> v1（旧语义：倒计时、每轮目标、roundComplete、自动结束）的 QA 报告已归档到 `.qa/qa-report-v1-archive.md`；`tests/core.test.js` 与 `tests/e2e.cjs` 已按 v2 语义**整体重写**，不保留旧断言。
-
----
+- 报告人：**qa-v3**（独立 QA，teammate；不参与应用实现，只写 `tests/`、`.qa/`、`qa-report.md`）
+- 测试对象：`/home/kibi/Work/Focus`（`index.html`、`styles.css`、`focus-core.js`、`app.js`）
+- 适用版本：**schema v3**（任务清单 + 每轮预期专注 + 任务耗时/专注时长分离）
+- 报告日期：2026-10-24
+- 规格来源：task-5 描述的 12 条 v3 产品语义 + `focus-core.js` 暴露的 v3 API / 存储键
 
 ## 1. 结论摘要
 
-| 维度 | 结果 |
+**通过。** v3 的核心语义在自动化测试下全部成立，未发现 P0/P1 缺陷：
+
+| 项目 | 结果 |
 | --- | --- |
-| 单元测试（`tests/core.test.js`，node:test） | **34 / 34 通过**（约 0.2s） |
-| 端到端测试（`tests/e2e.cjs`，CDP + headless Chrome） | **16 / 16 通过**（约 38s） |
-| 浏览器 console 错误 / 未捕获异常 | **0 条** |
-| 阻塞式弹窗（alert/confirm） | **0 次** |
-| 关键截图 | **13 张**（`.qa/v2-*.png`，桌面/移动/深色/浅色/目标达成/记录） |
-| 可重复性 | 同快照多次完整运行均 16/16 通过（每个场景独立重置，无状态残留） |
-| P0 / P1 / P2 缺陷 | **0 / 0 / 0** |
-| P3 观察项 | 4（见 §7，其中 2 条 README 已声明为已知取舍） |
+| 单元测试 `node --test tests/core.test.js` | **64 / 64 通过**（exit 0，约 0.3s） |
+| 端到端 `node tests/e2e.cjs` | **10 / 10 场景通过，361 项断言**（exit 0，约 27s） |
+| Console error / 未捕获异常 | **0**（整个 e2e 会话，含所有场景与刷新） |
+| P0 / P1 / P2 遗留缺陷 | **0 / 0 / 0**（首轮发现 3 个 P2，Lead 修复后已回归验证，见 §7） |
+| 源码修改 | 无（QA 只写 `tests/`、`.qa/`、`qa-report.md`） |
 
-**v2 需求逐条验证状态：**
+关键行为均已按规格验证：任务清单多任务与单活动任务互斥、开始专注弹窗的本轮预期选择（默认取任务计划值）、
+正计时且达标不自动停、暂停=结束当前轮并计轮、任务耗时为含暂停的墙钟时间、
+下一轮/继续、完成任务后记录任务预期/实际耗时与每轮预期/实际专注、今日统计与效率对比、
+刷新恢复（running→paused 不丢轮次/时间）、删除/撤销/清空、快捷键、v2 数据迁移、移动端无横向溢出。
 
-| # | 新语义要求 | 验证方式 | 状态 |
-| --- | --- | --- | --- |
-| 1 | 一个任务只有一个目标时长（提示/统计参考，不分摊到轮） | 单测 `createSession`/`clampTargetMs`；E2E B1/B2/B8（`session.targetMs` 为唯一目标，轮次仅 `{focusedMs}`） | ✅ |
-| 2 | 正计时从 0 累计；到目标不停止、可无限继续，超时显示「已超出」 | 单测 `formatElapsed`/`getTotalFocusedMs`/`getOvertimeMs`/`isTargetReached`；E2E B2/B4（越过 1 分钟目标后继续跑 10 分钟仍在 running，`已超出`、`目标已达成`、绿色数据状态） | ✅ |
-| 3 | 暂停 = 结束当前轮并计一轮，任务不结束；暂停态按钮只剩「继续 + 完成」 | 单测 `pauseSession`（含 999/1000ms 边界）；E2E B2（暂停后可见按钮数量=2、下一轮隐藏、轮次=1、累计时间冻结）、B15 移动端同样验证 | ✅ |
-| 4 | 下一轮 = 结束当前轮并立即开新一轮，不弹确认框 | 单测 `startNextRound`；E2E B2/B3/B10（点击后 `modalOpen=false`、轮次累加、累计时间不丢、连点只推进一次） | ✅ |
-| 5 | 完成记录同时保存/展示实际时间 + 设定时间 + 轮数 + 达成条 | 单测 `completeSession`/`normalizeRecord`；E2E B2/B3/B4/B7/B12/B13（列表 `实际 X / 目标 Y`、`· N 轮`、达成条宽度与 `is-reached`、超时记录 100%） | ✅ |
-| 6 | session 结构 v2（`rounds=[{focusedMs}]`，phase 仅 running/paused，目标在 `session.targetMs`） | 单测 `createSession`/`normalizeSession`（无 roundIndex、轮次无 targetMs）；E2E 直接断言 localStorage 结构 | ✅ |
-| 7 | 刷新恢复：结束当前轮并恢复为 paused，轮次与实际时间不丢 | 单测 `restoreSession`（按 `savedAt` 收口）；E2E B5（running→paused、轮次 1、~4 分钟；再次刷新精确保持；继续后完成 2 轮）、B6（达成态刷新保留达成状态） | ✅ |
-| 8 | 0–1 秒轮次不计（`MIN_ROUND_MS=1000`） | 单测边界 0/999/1000ms；E2E B11（亚秒暂停/下一轮/收口均不计轮，记录仅 1 轮） | ✅ |
-| 9 | 目标时长设置：预设 + 1–480 自定义，小数按整分钟四舍五入（已知取舍） | 单测 `clampTargetMs`；E2E B8（0/481/1440 拒绝且即时提示，480/1 接受，45.5→46） | ✅ |
-| 10 | UI 新状态：正计时、暂停态、目标达成/超时（绿色不停止）、记录实际 vs 目标 + 进度条 | E2E B1/B2/B4/B7 + 截图 `.qa/v2-desktop-*.png` | ✅ |
+## 2. 测试环境与工具
 
----
-
-## 2. 最终源码快照（权威）
-
-| 文件 | 大小 | mtime (UTC) | sha256 |
-| --- | --- | --- | --- |
-| `index.html` | 11889 | 2026-10-24 02:45:40 | `ed5a06c19b93d0247803d1e8819fa97b6eadfdbe9263190a3c08a436e6bb72f3` |
-| `app.js` | 36289 | 2026-10-24 02:45:21 | `3feb4b5fe2e656853defae71d8a3adc71a9b96b06155719c251ba431d75a9a5f` |
-| `focus-core.js` | 21636 | 2026-10-24 02:43:37 | `37c380b3c32ea7060d90e141ebaf5a5884ce2ba30a5b15362b259042ac2f2998` |
-| `styles.css` | 39465 | 2026-10-24 03:02:27 | `40f0d38523891a7173ddd18362c9ee32bad508d8f61e944387950daf81595edd` |
-| `README.md` | 7224 | 2026-10-24 02:48:11 | `a00cd5e942e3ed3df9883c7e5a6065bce3faa071141f43ec64d7e75a678fff0d` |
-
-> 机器可读副本：`.qa/v2-source-final.sha256` / `.stat`；QA 开始时的基线：`.qa/v2-source-baseline.*`。
-> 测试期间 `styles.css` 由设计评审并行精修（QA 开始后仍有多次变更，最后变更 03:02:27）；`app.js` / `focus-core.js` / `index.html` 自 v2 基线起未再变动。最终验证在 03:04:02–03:04:40Z 的冻结快照上执行，运行前后 hash 一致（`.qa/v2-final-run-before.sha256` / `-after.sha256`）。
-> 若之后 `styles.css` 再变，只影响截图外观；本报告功能断言不依赖 CSS（仅依赖 DOM、文本与 `hidden`/溢出几何）。
-
----
-
-## 3. 环境
-
-| 项目 | 值 |
+| 项 | 值 |
 | --- | --- |
-| 操作系统 | Linux x64（DSH 沙箱，workspace `/home/kibi/Work/Focus`） |
-| Node | v24.22.1（仅内置能力，无 npm 依赖） |
-| 浏览器 | Google Chrome 156.0.8078.47，`--headless=new` |
-| CDP 端口 | 9444（测试脚本自行启动/结束 Chrome，profile 在 `.qa/` 内并清理） |
-| 预览服务器 | `http://127.0.0.1:4173/index.html`（复用后台运行实例，HTTP 200） |
-| 桌面视口 | window 1440×900，headless 可视区 1440×757 |
-| 移动视口 | 390×844，DPR 2（`Emulation.setDeviceMetricsOverride`） |
-| 时区 | UTC+0 |
-| 数据隔离 | 每个场景经同源清理页 `.qa/blank.html`（不加载应用脚本）清空 localStorage，规避 `beforeunload` 回写 |
-| 时间加速 | 导航前 `Page.addScriptToEvaluateOnNewDocument` 注入 `Date.now` 偏移时钟，offset 存 localStorage 跨刷新保持；场景起点固定为 `2026-10-24 10:00`（本地时区） |
+| 机器时区 | Atlantic/Reykjavik（UTC） |
+| Node.js | v24.22.1（内置 `WebSocket`，e2e 零依赖） |
+| 浏览器 | Google Chrome 156.0.8078.47（headless=new） |
+| 预览服务器 | `http://127.0.0.1:4173/index.html`（复用已在运行的服务；e2e 内置 4181 兜底自启） |
+| CDP 端口 | 9444（`FOCUS_CDP_PORT` 可覆盖） |
+| 浏览器 profile / 截图 | `.qa/chrome-e2e-v3`、`.qa/*.png`（均位于 workspace，未用 `/tmp`） |
+| 视口 | 桌面 1440×900 @1x；移动端 390×844 @2x（`Emulation.setDeviceMetricsOverride`） |
+| 时钟 | **冻结可控时钟**：`Page.addScriptToEvaluateOnNewDocument` 覆盖 `Date.now`，基准为真实秒级时间，仅 `window.__qa.advance(ms)` 推进，测试执行耗时不会引入漂移 |
+| 主题/动效 | 深/浅色均测；e2e 全程模拟 `prefers-reduced-motion: reduce` 以保证截图稳定（不影响业务断言） |
+| 干净状态 | 同源 `.qa/blank.html`（不加载应用脚本）→ `localStorage.clear()` → 回到 `index.html`，规避 `beforeunload` 回写旧会话 |
 
----
+## 3. 源码 hash
 
-## 4. 复现命令
+QA 开始时（09:51）记录基线，最终验证运行前再次比对（见 `.qa/v3-source-baseline.sha256`、`.qa/v3-source-final.sha256`）。
+测试期间 Lead/设计评审并发修改过 `app.js`（`ensureSessionTask` + 3 个 P2 修复）与 `styles.css`（仅视觉打磨），
+**最终结论以最新源码的完整重跑为准**（详见 `.qa/v3-e2e-results.json` 内 `sourceHashes`）：
+
+| 文件 | QA 开始时（09:51） | 最终验证运行（10:12） |
+| --- | --- | --- |
+| `index.html` | `743610dd02571e92e42cb945beb54a2e19765b5f8b61cc12e45573637a112cd9` | 同左（未变） |
+| `styles.css` | `38add58d08e1257411235d196957d7ac378924ced4f5874e031c2746c66170d7` | `175e52794709bc67820675cf631505a154b789abacb160af5775295837295da4` |
+| `focus-core.js` | `a5b2b88a8ff68d16ed71d990feb083907c325f0703817e8db01a5ed63e3b16a0` | 同左（未变） |
+| `app.js` | `e104bcd323d7f8c30b34c0f3524f18825f03f8488a7aaa29dd7d8d03d3beb602` | `6f5d20f3db2193c6129cf44d5fca9f02675848a0970baf4e85ec50289d44acaf` |
+
+> **最终验证运行**：2026-10-24 10:12:08–10:12:35 UTC（e2e）与 10:13:09 UTC（core），日志 `.qa/v3-e2e-final.log` / `.qa/v3-core-final.log`。
+> 说明：`styles.css` 由 design-v3 在 QA 期间持续打磨（纯视觉/几何）。功能断言与 DOM 选择器契约不依赖具体样式；
+> 移动端「无横向溢出」断言基于元素几何，每次完整 e2e 重跑都会重新校验。最终截图与 hash 以最后一次重跑为准。
+
+## 4. 交付物与复现方式
 
 ```bash
 cd /home/kibi/Work/Focus
 
-# 单元测试（34 项，约 0.2 秒）
+# 1) 单元测试（纯逻辑，focus-core.js）
 node --test tests/core.test.js
-#    或：node --test
+# → ℹ tests 64 / pass 64 / fail 0
 
-# 端到端测试（16 项，约 40 秒；自动启动并清理 headless Chrome）
+# 2) 端到端（自动起停 headless Chrome，冻结时钟快进，截图写入 .qa/）
 node tests/e2e.cjs
-#    产物：.qa/v2-*.png（13 张截图）、.qa/e2e-results-v2.json
-#    退出码：0 = 全部通过；1 = 有失败（失败信息含「期望 vs 实际」）
-
-# 可选环境变量
-#   QA_ONLY=B2,B4        只运行指定场景（便于定位）
-#   QA_CDP_PORT=9444     CDP 端口（默认 9444）
-#   QA_PREVIEW_PORT=4173 预览端口（默认 4173）
-#   CHROME_BIN=google-chrome
+# → 场景 10/10 通过 · 断言 361 项 · 已知缺陷 0 项 · console error 0 项，exit 0
 ```
 
-若 4173 不可用，`tests/e2e.cjs` 会自动启动 `python3 -m http.server 4181 --bind 127.0.0.1`，并在 `.qa/e2e-results-v2.json` 的 `preview` 字段标注来源。本次运行复用了 4173。
+产物：
 
----
+| 路径 | 内容 |
+| --- | --- |
+| `tests/core.test.js` | v3 核心逻辑单元测试（node:test + assert/strict，64 用例） |
+| `tests/e2e.cjs` | CDP 端到端测试（10 场景，自动启动/关闭 Chrome，4181 服务器兜底） |
+| `.qa/v3-e2e-results.json` | 最近一次完整 e2e 结果（场景/断言/console/源码 hash） |
+| `.qa/v3-*.png` | 12 张桌面/移动端、深/浅色关键截图（索引见 §10） |
+| `.qa/v3-source-baseline.sha256` / `.qa/v3-source-final.sha256` / `.qa/v3-source-final.stat` | 源码 hash 基线 / 最终 / 校验记录 |
+| `.qa/v3-e2e-final.log` / `.qa/v3-core-final.log` | 最终两条命令的完整输出日志 |
+| `.qa/v3-defects-prefix-evidence.md` | 3 个 P2 修复前的实测证据留档 |
+| `.qa/qa-report-v2-archive.md` | 旧 v2 QA 报告归档（原 `qa-report.md`，sha256 `cc54730d…`） |
 
-## 5. 测试方法（v2 重写要点）
+## 5. v3 规格 → 测试覆盖矩阵
 
-### 5.1 单元测试（34 项）
-
-- 直接 `require('../focus-core.js')`（UMD 同时支持浏览器/Node），使用内存 Storage 替身与「抛错 Storage」验证存储安全。
-- 全部时间戳用本地时间构造，**与运行机器时区无关**；不依赖 DOM、不 sleep、确定性。
-- 覆盖 v2 新 API：`createSession` / `getRoundElapsedMs` / `getTotalFocusedMs` / `getCompletedRounds` / `getCurrentRoundNumber` / `getTargetRemainingMs` / `getOvertimeMs` / `getProgress` / `isTargetReached` / `pauseSession` / `resumeSession` / `startNextRound` / `completeSession` / `restoreSession` / `normalizeSession`（v1→v2 迁移）/ `normalizeRecord` / `summarize` / storage。
-- 保留 v1 的格式化/夹紧/统计/净化测试，但断言改为新语义（如 `formatElapsed` 向下取整、`summarize.todayRounds` 统计全部轮次）。
-
-### 5.2 端到端测试（16 项）
-
-- 零依赖 CDP 驱动：`child_process` 启动 headless Chrome，Node 24 内置 `WebSocket` 连接；自实现 `send/事件订阅/waitEvent`；SIGINT/异常时确保 Chrome 回收。
-- **可控时钟**：`Page.addScriptToEvaluateOnNewDocument` 在应用脚本前覆盖 `Date.now`（真实时间 + offset），offset 持久化在 localStorage 因而跨刷新保持；25 分钟场景毫秒级快进。
-- **状态重置**：应用在 `beforeunload` 中会回写运行中的 session，因此先导航到同源、不加载应用的 `.qa/blank.html` 清空 localStorage，再打开应用，保证场景从干净状态开始（并断言清空后 `localStorage.length === 0`）。
-- **断言可读性**：统一输出「期望 / 实际」；等待类失败附带最后观察到值；`clickStartExpectRunning` 失败会附带表单/弹窗/toast/session 快照。
-- **console 健康**：汇总 `Runtime.exceptionThrown`、`Runtime.consoleAPICalled(error/assert)`、`Log.entryAdded(error)` 与 `Page.javascriptDialogOpening`，B16 断言全为 0。
-- **快照字段**：视图/phase/`data-target-reached`/正计时文本/目标剩余或超出/暂停与按钮可见性/进度/记录卡片（任务、时间段+轮数、实际/目标、达成条宽度与 `is-reached`）/统计/7 日图/存储内容/toast。
-
----
-
-## 6. 测试清单与结果
-
-### 6.1 单元测试 — 34 / 34 通过
-
-| # | 用例 | 覆盖点 | 结果 |
+| # | v3 规格 | 覆盖位置 | 关键断言（示例） |
 | --- | --- | --- | --- |
-| 1 | constants | `VERSION=2`、`MIN_ROUND_MS=1000`、目标上下限、`MAX_RECORDS`、storage keys | ✅ |
-| 2 | 旧 v1 API 已移除 | `tickSession/getElapsed/getRemaining/countCompletedRounds/getSessionFocusedMs === undefined` | ✅ |
-| 3 | `formatElapsed` | 正计时向下取整：999→00:00、1000→00:01、59:59、`1:00:00`、8h、负数/NaN | ✅ |
-| 4 | `formatClock` | 剩余/超时向上取整：1→00:01、1499→00:02、`1:00:00` | ✅ |
-| 5 | `formatSpan` / `minutesLabel` / 时间工具 | 不足 1 分钟、小时组合、`<1`、`formatTimeOfDay/dateKey/parseDateKey/formatDayLabel` | ✅ |
-| 6 | `clampTargetMs` | 0/负值→1 分钟、480 上限、超限夹紧、undefined→25 分钟、数字字符串、null | ✅ |
-| 7 | `createSession` | v2 结构、无 `roundIndex`、轮次无 per-round target、任务名折叠/截断、目标夹紧 | ✅ |
-| 8 | `getRoundElapsedMs` | 仅当前轮计时、暂停→0、时钟回拨不为负、恢复后新一轮重新计时 | ✅ |
-| 9 | `getTotalFocusedMs` | 已完成轮次 + 当前轮、暂停冻结、null→0、时钟回拨不减已完成轮 | ✅ |
-| 10 | `getCompletedRounds` / `getCurrentRoundNumber` | running=轮次+1；paused=轮次；0 轮暂停=0 | ✅ |
-| 11 | 目标数学 | 剩余/超时/进度（夹紧 100%）/`isTargetReached`（含恰好等于目标）、null | ✅ |
-| 12 | `pauseSession` | 结束并计入当前轮、任务保持、phase=paused、再次暂停无副作用、null | ✅ |
-| 13 | `pauseSession` MIN_ROUND_MS 边界 | 0/999ms 不计；1000ms 计入且时长=1000 | ✅ |
-| 14 | `resumeSession` | paused→running 开新一轮、累计保留、running/null no-op | ✅ |
-| 15 | `startNextRound` | 结束当前轮立即开新一轮、<1s 不计、暂停中直接开新一轮不重复计轮、null | ✅ |
-| 16 | `completeSession`（running） | 包含未收口轮、actual/target/rounds、v2 记录字段、日期键 | ✅ |
-| 17 | `completeSession`（paused/多轮） | 2 轮 12+10 分钟、`targetReached` 推导、暂停中直接完成 | ✅ |
-| 18 | `completeSession`（空） | 0/亚秒→null、0 轮 paused→null、null 输入 | ✅ |
-| 19 | `completeSession`（超目标） | 目标 5 分钟实做 8 分钟 → actual 8 / target 5 / reached | ✅ |
-| 20 | `completeSession` 跨日 | 23:50 开始、次日 0:20 完成 → `dateKey` 为结束日 | ✅ |
-| 21 | `restoreSession`（running） | 按 `savedAt` 收口当前轮（而非 now）、<1s 不收、恢复 paused、null/非法输入 | ✅ |
-| 22 | `restoreSession`（paused） | 轮次原样保留、累计时间不变 | ✅ |
-| 23 | v1 running 迁移 | v1 轮次对象→`{focusedMs}`、丢弃 v1 字段、`restoreSession` 收口 open round | ✅ |
-| 24 | v1 paused / roundComplete 迁移 | 残留 `roundElapsedMs`≥1s 迁移为轮次、<1s 丢弃、roundComplete→paused 不重复 | ✅ |
-| 25 | `normalizeSession` 防御 | null/字符串/数组拒绝、未知 phase→paused、目标夹紧、roundStartedAt 仅 running 保留 | ✅ |
-| 26 | 轮次规范化 | 数字与 `{focusedMs}` 对象均可、v1 字段丢弃、非法对象丢弃；记录内轮次转为毫秒数字 | ✅ |
-| 27 | `normalizeRecord` | 必填字段、轮次数组、`targetReached` 推导/显式优先、v1 记录迁移、`roundsCompleted≤roundsTotal`、dateKey 推导 | ✅ |
-| 28 | `sanitizeRecords` / `addRecord` / `removeRecord` | 过滤、倒序、上限 500、不可变性、缺失 id、null | ✅ |
-| 29 | `groupRecords` | 按 dateKey 分组、顺序 | ✅ |
-| 30 | `summarize` | 今日实际分钟/轮次（`roundsTotal` 之和）/次数、总计时长、连续天数、7 日图、旧记录不进图 | ✅ |
-| 31 | storage | session/records/settings 往返、坏 JSON→兜底、抛错 storage 安全、settings 规范化 | ✅ |
-| 32 | edge：目标达成不变异 | `isTargetReached` 只读、超时后仍可暂停/继续/完成、超时量保持 | ✅ |
-| 33 | edge：多轮累计 | 5×2 分钟轮 + 收口 60s → 6 轮 11 分钟，统计一致 | ✅ |
-| 34 | edge：<1s 暂停/继续/下一轮 | 0 轮暂停→继续→亚秒下一轮→满 1 秒后计轮，累计一致 | ✅ |
+| 1 | 任务清单：多任务，名称 + 预期完成时长 + 单轮预期专注 | e2e S2；core 任务 API | 自定义 90/30、预设 30/15、120/45 三任务倒序；`预期完成 1 小时 30 分钟 · 单轮专注 30 分钟` |
+| 2 | 开始专注弹窗：预设 15/25/45/60 + 自定义 1–480，默认取任务计划值 | e2e S3、S4；core clamp | 30 分钟计划 → 自定义框回填 30；0/481 被拦截并 toast；选 15 → `本轮预期 15 分钟` |
+| 3 | 会话按轮：只统计本轮实际专注（正计时）；预期到点不自动停 | e2e S4；core `getRoundElapsedMs` 等 | 5→17 分钟持续累加；`本轮达标` 后仍 running、仍 0 轮；达标绿色态由 data 属性断言 |
+| 4 | 暂停=结束当前轮并计轮，任务不结束；可选下一轮预期再继续；运行中「下一轮」 | e2e S4；core `pauseSession`/`resumeSession`/`startNextRound`/`setNextExpectedFocusMs` | 18 分钟暂停 → 1 轮/实际 18；改 20 分钟继续 → 第 2 轮预期 20；下一轮 → 第 3 轮 |
+| 5 | 任务耗时=首次开始→完成墙钟（含暂停），与专注之和不相等；任务越快越好、专注越长越好 | e2e S4、S7；core `getTaskElapsedMs`/`completeSession` | 暂停 7 分钟：任务耗时 18→25 而专注仍 18；记录 50 分钟 vs 专注 43 分钟 |
+| 6 | 完成记录：任务预期 vs 实际耗时、每轮预期 vs 实际专注（平均/总计/轮次）、日期时间段 | e2e S4、S7；core `normalizeRecord`/`recordMetrics` | 3 轮 18/15、21/20、4/20；记录 `实际 50 分钟 / 预期 2 小时（快 1 小时 10 分钟）`、`平均 14 分钟/轮 · 预期 18 分钟` |
+| 7 | 暂停后可返回清单（显示进度/可继续）；同一时间仅一个进行中任务，其他开始被阻止 | e2e S6 | 活动行置顶、`暂停中 · 已专注 3 分钟 · 1 轮`；其他按钮 `is-disabled` + toast 阻止；继续弹窗显示进度 |
+| 8 | 删除任务需确认；删除进行中任务结束会话且不生成记录 | e2e S6 | 取消保留；进行中删除提示「不会生成完成记录」；删除后无记录、会话清空 |
+| 9 | 刷新恢复：running → 结束后恢复 paused，轮次与实际时间不丢 | e2e S6、S10；core `restoreSession` | 运行中刷新 → 2 轮、当前轮 2 分钟、任务耗时 5 分钟；孤儿会话补建待办并恢复 10 分钟轮次 |
+| 10 | 今日统计：专注总时长、平均每轮（对比预期）、完成任务数/轮次、连续天数；任务耗时与专注均值对比 | e2e S4、S9；core `summarize` | 今日 43 分钟 / 平均 14（预期 18）/ 1 个 / 共 3 轮 / 连续 1 天；效率行 `快 1 小时 10 分钟`、`-4 分钟` |
+| 11 | 记录列表：实际/预期 + 快慢差异；删除撤销、清空、刷新持久化 | e2e S4、S5；core `sanitizeRecords`/`addRecord` | 删除→撤销恢复；清空需二次确认；清空同步清空旧撤销 toast；刷新后为空 |
+| 12 | v2 迁移：旧 records→完成记录、旧 session→待办任务，不报错不丢数据 | e2e S9；core 迁移用例 | 2 条 v2 记录 + 1 个 v2 会话 + v1 设置全部迁移；旧键保留；今日统计/平均立即生效 |
 
-命令输出：`ℹ tests 34 / ℹ pass 34 / ℹ fail 0`（`.qa/unit-final.log`）。
+## 6. 单元测试清单（`tests/core.test.js`，64 用例）
 
-### 6.2 端到端测试 — 16 / 16 通过
+按组统计（完整用例名见附录 A）：
 
-| ID | 场景 | 关键断言（摘要） | 截图 | 结果 |
-| --- | --- | --- | --- | --- |
-| B1 | 首屏 v2 | 设置视图、默认 25 分钟胶囊、`整个任务 25 分钟`、「开始任务」、计时器 `00:00`、会话说明「目标只作提示，不会自动结束」、记录 0/空状态（提示实际时长与目标时长）、今日统计 0、7 日图 7 列、清空隐藏、无 session/records 写入 | `v2-desktop-setup-dark.png` | ✅ |
-| B2 | 正计时→暂停计轮→继续新一轮→完成记录 | 从 00:00 正计时；5 分钟→`05:00`/33%/还剩 10:00；暂停→`已完成 1 轮 · 已暂停`、按钮仅「继续+完成」（`#nextBtn` hidden/display:none）、轮次 1、toast「第 1 轮结束…任务已暂停」、持久化轮次约 5 分钟；暂停期间快进 3 分钟计时冻结；继续→第 2 轮、累计不丢；下一轮→第 3 轮无弹窗；10 分钟完成→弹窗「实际专注…距目标 15 分钟 还差 5 分钟 · 共 3 轮」；记录 v2 字段/3 轮/实际 10 分钟/达成条 67%/未达成；今日统计 10 分钟/3 轮/连续 1 天/近 7 天合计；session 清除 | `v2-desktop-session-running.png`、`v2-desktop-session-paused.png` | ✅ |
-| B3 | 下一轮无确认 + 未达成记录 | 10 分钟点下一轮→无弹窗、第 2 轮、1 轮、累计 10:00；再 3 分钟下一轮→第 3 轮、2 轮；再 2 分钟完成→弹窗「共 3 轮/实际 15 分钟」；记录 3 轮、实际 15/目标 25、达成条 60% 未达成、今天分组；今日轮次 3 | `v2-desktop-records-under-target.png` | ✅ |
-| B4 | 目标达成不自动结束 | 1 分钟目标：30s→`00:30`、约 50%、还剩；再过 35s→`01:05` 仍 running、`data-target-reached=true`、`目标已达成`、`已超出`、100%、轮次 0、toast 只弹 1 次；再跑 10 分钟→`11:05` 仍 running、无重复提示；暂停→计 1 轮；完成→弹窗「已达到目标 1 分钟 · 共 1 轮」；记录 actual≈11 分钟/target 1 分钟/reached、达成条 100%、is-reached | `v2-desktop-target-reached.png`、`v2-desktop-records-reached.png` | ✅ |
-| B5 | 刷新恢复 running→paused | 4 分钟刷新→仍会话视图、paused、按钮「继续」、下一轮隐藏、`已完成 1 轮 · 已暂停`、轮次 1、`04:00`（±6s，4 秒保存间隔）、toast「本轮已结束，任务已暂停」、持久化轮次约 4 分钟；暂停态再刷新时间/轮次精确不变；继续→第 2 轮→再 2 分钟完成→记录 2 轮、实际约 6 分钟、目标 15 保留 | — | ✅ |
-| B6 | 达成目标后刷新 | 70s 越过 1 分钟目标→刷新→paused 且 `target-reached=true`、`已暂停`、轮次 1、`01:10`（±6s）；完成→记录 `targetReached=true`、实际约 70s | — | ✅ |
-| B7 | 记录展示/删除撤销/清空 | 3 条（今天 2 + 昨天 1，含达成/未达成）→记录倒序、`· N 轮`、`实际 X / 目标 Y`、达成条宽度/is-reached 与持久化一致；今日 40 分钟/3 轮/连续 2 天/近 7 天 80 分钟；删除→toast+撤销、统计更新、持久化；撤销→恢复；再删+刷新→删除保留；清空弹窗「将删除 2 条」→取消不删→确认→空状态/统计归零/7 日图全空/按钮隐藏/持久化空；刷新仍空 | `v2-desktop-record-delete-toast.png`、`v2-desktop-records-empty.png` | ✅ |
-| B8 | 自定义目标时长校验 | 0/481/1440→即时提示「需在 1–480 分钟之间」+警告态、开始被 toast 拒绝、不写 session；480→`目标 480 分钟 · 还剩 8:00:00` 并持久化；1→`还剩 01:00`；45.5→取整 46 分钟（README 已声明取舍）；空白任务名→提示且不开始 | — | ✅ |
-| B9 | 快捷键 | 空格暂停（计 1 轮、toast）、空格继续（第 2 轮、累计不丢）、N 下一轮（无弹窗、2 轮）、Enter 完成（弹窗→Esc 取消→再 Enter→保存）、输入框聚焦时快捷键不触发、按钮聚焦时空格不双触发 | — | ✅ |
-| B10 | 快速连点 | 连点下一轮 5 次→无弹窗、只推进到第 2 轮、只计 1 轮、累计 10:00、持久化 1 条轮次；连点完成 3 次→只弹一次保存窗、确认后只有 1 条记录 | — | ✅ |
-| B11 | 0–1 秒轮次不计 | 立刻完成→「还没有产生专注时长」不生成记录（取消继续）；立刻暂停→0 轮、「任务已暂停」、toast「继续将开始新一轮」；继续后立刻下一轮→仍 0 轮；快进 1.2s 后下一轮→1 轮；亚秒收口完成→记录仅 1 轮、实际约 1 秒多、今日 `<1` | — | ✅ |
-| B12 | 跨日 | 10-23 23:50 开始，10 分钟暂停（1 轮），继续 20 分钟，10-24 00:20 完成→记录 `dateKey=2026-10-24`、2 轮、实际 30 分钟、目标 25 达成、分组「今天」、今日统计；刷新后仍正确 | — | ✅ |
-| B13 | v1 数据迁移 | 预置 v1 paused session（rounds 对象 + `roundElapsedMs` 2 分钟）→恢复 paused、`已完成 2 轮 · 已暂停`、`07:00`、轮次 2、restore toast；v1 record（roundsCompleted 2/roundsTotal 3）→记录显示 `· 3 轮`、`实际 15 分钟 / 目标 30 分钟`、达成条 50%；迁移会话继续→第 3 轮→完成→记录 2 条 | — | ✅ |
-| B14 | 主题/提示音 | 默认深色 + meta `#0a0b0e` + 提示音 on；切浅色→`light`/`#f4f0e9`/aria-label；关提示音→aria-pressed=false/is-muted/toast/settings 持久化；刷新保持；切回默认恢复 | `v2-desktop-setup-light.png` | ✅ |
-| B15 | 移动端 390×844 | 设置/运行/暂停/记录四态均无横向溢出；运行态 3 个按钮与倒计时在视口内；暂停态仅 2 个按钮（继续+完成）、标签 `已完成 1 轮 · 已暂停`；记录显示实际/目标 + 达成条 | `v2-mobile-setup.png`、`v2-mobile-session.png`、`v2-mobile-paused.png`、`v2-mobile-records.png` | ✅ |
-| B16 | console 健康 | console 错误 0、未捕获异常 0、alert/confirm 0；`FocusCore.VERSION=2`、`MIN_ROUND_MS=1000`、v2 API 全部可用、v1 状态机 API 已移除；除 AudioContext 预期警告外无其它警告 | — | ✅ |
-
-运行输出：`测试: 16 通过: 16 失败: 0；console 错误: 0 条；警告: 0 条`（`.qa/e2e-final.log`）。
-
----
-
-## 7. 缺陷与观察项
-
-### P0 — 阻塞缺陷
-
-无。
-
-### P1 — 高优先级缺陷
-
-无。
-
-### P2 — 中优先级缺陷
-
-无。
-
-### P3 — 低优先级观察项 / 已知取舍
-
-#### O1（P3，README 已声明的已知取舍）自定义目标时长的小数按整分钟四舍五入
-
-- 复现：设置页 → 任务填任意值 → 自定义时长输入 `45.5` → 提示变为「整个任务 46 分钟」→ 开始任务 → `目标 46 分钟 · 还剩 46:00`，持久化 `targetMs=2760000`。
-- 说明：需求第 7 条明确「小数输入按整分钟四舍五入（已知取舍）」，README「已知取舍」也有说明，**不作为缺陷**；B8 将其固化为回归断言。
-- 证据：`.qa/e2e-results-v2.json` → `observations[0]`。
-
-#### O2（P3，健壮性）损坏数据中 `rounds` 的「数字」0/负数会被夹成 0 并计入轮数
-
-- 复现：控制台执行
-  `localStorage.setItem('focus.session.v1', JSON.stringify({phase:'paused', rounds:[0,-5,1500]}))` → 刷新。
-- 期望：无意义的 0/负数轮次应被丢弃。
-- 实际：`normalizeSession` 对「数字型轮次」走 `makeRound()`，`Math.max(0, …)` 后得到 `{focusedMs:0}`，被计入 `getCompletedRounds`（此例显示 3 轮）。
-- 触发条件：仅当 localStorage 被手工/异常写成数字轮次时出现；正常应用只会写 `{focusedMs: >0}`，**不影响正常用户流程**（P3）。
-- 证据：`tests/core.test.js` → 「轮次规范化」用例中的断言与注释。
-- 建议（若后续再动 core）：`normalizeRound` 对数字分支也要求 `>0` 再 `makeRound`。
-
-#### O3（P3，UX 一致性）暂停态隐藏「下一轮」按钮，但键盘 N 仍可直接开始下一轮
-
-- 复现：运行中按空格暂停（按钮区只剩「继续 + 完成」）→ 按 `N`。
-- 实际：进入新一轮（等价于「继续」），行为无害且与 README「N = 结束当前轮并开始下一轮」的语义不冲突（暂停时当前轮已结束），但按钮被隐藏而快捷键仍可用，交互一致性略有差异。
-- 结论：**设计取舍/低风险**，是否收口由 Lead 决定（隐藏时同步忽略 N，或暂停态也保留「下一轮」语义按钮）。
-- 证据：`tests/e2e.cjs` B9（暂停后空格继续）/ B2（暂停态按钮数量断言）。
-
-#### O4（P3，README 已声明的已知取舍）刷新精度最多回退约 4 秒
-
-- 说明：`SAVE_INTERVAL_MS=4000`，进行中每 4 秒落盘；刷新后恢复为 paused，当前轮按已保存时间收口，因此实际时间最多回退约 4 秒。README「已知取舍」已明确，E2E B5 用 ±6 秒容差验证而非精确相等，**不是缺陷**。
-
----
-
-## 8. 非缺陷 / 设计取舍核查（避免误报）
-
-1. **到达目标不自动暂停/结束**：B4 越过目标后继续跑 10 分钟仍为 running，只提示一次并进入绿色「目标已达成」状态；符合 v2 需求。
-2. **暂停即结束当前轮但任务不结束**：B2/B11 验证；暂停后按钮仅「继续 + 完成」，「下一轮」按钮 `hidden` 且计算样式 `display:none`（Chrome UA `[hidden]{display:none !important}`），不是死按钮。
-3. **「下一轮」没有确认弹窗**：B3/B10 明确断言 `modalOpen=false`；连点只推进一轮。
-4. **0–1 秒轮次不计**：单测 999/1000ms 边界 + E2E B11 亚秒暂停/下一轮/收口均不计；0 轮任务完成不生成记录。
-5. **记录同时包含实际与目标**：记录卡片 `实际 X / 目标 Y` 文案与持久化字段一致，达成条宽度按 `实际/目标` 计算、超目标封顶 100% 并带 `is-reached`。
-6. **目标达成提示只弹一次**：B4 越过目标后继续 10 分钟，`已达到目标` toast 计数保持 1。
-7. **刷新恢复不丢轮次/时间**：B5/B6；恢复为 paused 并结束当前轮，轮次与累计时间保留（误差在 4 秒保存间隔内）。
-8. **v1 数据兼容**：B13 用真实 v1 session/record 结构验证迁移；旧版记录仍能显示轮次与实际/目标。
-9. **`session.rounds` 不再有 per-round target**：单测明确断言 `rounds[0].targetMs === undefined`，与 v2 需求「目标作用于整个任务」一致。
-10. **音效/彩带**：headless 无声音输出，仅验证开关状态、持久化与无异常；不判定实际发声。
-
----
-
-## 9. 未覆盖 / 已知限制
-
-| 项 | 说明 |
-| --- | --- |
-| 真实时长等待 | 用注入时钟快进，未真跑 25 分钟墙钟；逻辑基于时间戳差值，风险低 |
-| 后台标签节流 / 系统休眠 | 未真实验证 Chrome timer throttling；`Date.now` 实现理论上不受节流影响 |
-| 多标签页同步 | 仅代码审查（存在 `storage` 事件监听同步 records），未做双页面 E2E |
-| 真实触屏手势 | 移动端为 390×844 视口 + DPR2 模拟，未启用触摸事件仿真/真机 |
-| 音效发声与彩带视觉 | headless `--mute-audio`，仅验证状态与无异常；彩带为瞬态动画，截图可能捕捉到粒子 |
-| localStorage 配额耗尽 / 隐私模式 | 单测用抛错 Storage 替身覆盖安全兜底；未在真实配额耗尽场景验证 |
-| 浏览器兼容性 | 仅 Chrome 156（headless）；README 声称支持 Chrome/Edge/Firefox/Safari 最新版，未跨浏览器验证 |
-| 500 条记录滚动性能 | 单测覆盖上限；未做大数据量交互性能测量 |
-| 可访问性专项 | 未做 axe/WCAG 全面审计（仅验证 aria-pressed/label、键盘路径、`hidden` 几何） |
-| v1 报告的旧场景 | 旧语义（倒计时/roundComplete/每轮目标）已整体废弃；v1 报告仅作历史归档 |
-
----
-
-## 10. 截图清单（`.qa/v2-*.png`，13 张）
-
-| 文件 | 场景 | 尺寸 |
+| 组 | 覆盖内容 | 用例数 |
 | --- | --- | --- |
-| `.qa/v2-desktop-setup-dark.png` | 首屏 · 深色 · 空状态（v2 文案「整个任务」「开始任务」） | 1440×757 |
-| `.qa/v2-desktop-session-running.png` | 正计时运行中（05:00 / 33% / 还剩 10:00） | 1440×757 |
-| `.qa/v2-desktop-session-paused.png` | 暂停态（已完成 1 轮 · 已暂停，仅继续+完成） | 1440×757 |
-| `.qa/v2-desktop-target-reached.png` | 越过目标仍在运行（01:05 / 目标已达成 / 已超出 00:06 / 绿色状态） | 1440×757 |
-| `.qa/v2-desktop-records-under-target.png` | 完成记录 · 未达成（实际 15 分钟 / 目标 25 分钟，达成条 60%） | 1440×757 |
-| `.qa/v2-desktop-records-reached.png` | 完成记录 · 超目标（实际 11 分钟 / 目标 1 分钟，达成条 100%） | 1440×757 |
-| `.qa/v2-desktop-record-delete-toast.png` | 删除记录后的 toast 与「撤销」 | 1440×757 |
-| `.qa/v2-desktop-records-empty.png` | 清空记录后的空状态 | 1440×757 |
-| `.qa/v2-desktop-setup-light.png` | 浅色主题设置页（提示音关闭） | 1440×757 |
-| `.qa/v2-mobile-setup.png` | 移动端设置页 | 780×1688 (390×844@2x) |
-| `.qa/v2-mobile-session.png` | 移动端正计时（暂停态前） | 780×1688 |
-| `.qa/v2-mobile-paused.png` | 移动端暂停态（仅继续+完成） | 780×1688 |
-| `.qa/v2-mobile-records.png` | 移动端完成记录（实际/目标 + 达成条） | 780×1688 |
+| API / 常量 | 规格要求的全部导出函数、VERSION=3、`focus.*.v3` 存储键、min/max/默认值 | 2 |
+| clamp / 格式化 | 任务 1–1440、专注 1–480、默认回退；`formatClock`(ceil)/`formatElapsed`(floor)/`formatSpan`/`minutesLabel`/日期工具 | 8 |
+| 任务 | create/normalize/sanitize/add/remove/find、标题清洗 60 字符、id、不可变输入 | 5 |
+| 会话与轮次 | create/normalize、轮次实际/剩余/超时/进度/达标、总专注/平均专注/任务耗时、`getLastRound` | 8 |
+| 暂停 / 继续 / 下一轮 | 0ms/999ms/1000ms 轮边界、暂停计轮（含 `roundElapsedMs` 累计）、resume、`setNextExpectedFocusMs`、运行中/暂停中 `startNextRound` | 7 |
+| 完成记录 | 无轮次拒绝；预期/实际任务耗时；墙钟含暂停；墙钟小于专注的边界；混合预期加权；完成时 paused 保留轮次；完整 flow（3 轮 15/20/20） | 7 |
+| 刷新恢复 | running→paused 收口不丢时间、<1s 轮丢弃、paused 原样、坏 payload 降级 | 4 |
+| 记录模型 | v3 往返、坏数据拒绝、v2 字段迁移（taskName/targetMs/totalFocusedMs/数字 rounds）、roundsTotal 一致性、`recordMetrics`（加权/快慢/空值） | 8 |
+| 记录列表 / 统计 | 排序/去重/500 上限、add/remove/group、今日聚合、streak（断档/今日为空）、last7、无 dateKey 回退 | 9 |
+| 存储与迁移 | tasks/session/records/settings 往返、坏 JSON、storage 抛异常、v2 session→todo、v2 records→v3、损坏 v3 仍迁移、设置迁移 | 8 |
+| 集成 | 刷新恢复 → 完成 → 记录 → summarize 全链路 | 1 |
 
-> 截图由 `node tests/e2e.cjs` 在最终快照上重新生成；脚本结束清理 Chrome 临时 profile，仅保留截图与结果 JSON。
+## 7. 缺陷清单（首轮发现，全部已修复并回归验证）
+
+**P0：无。P1：无。** 首轮 3 个 P2 已由 Lead 在 `app.js` 修复（修复后 hash `6f5d20f3…`），
+e2e 中已从 `softCheck` 升级为**硬性回归断言**，最终运行 0 个 known defect。
+修复前实测证据留档于 `.qa/v3-defects-prefix-evidence.md`。
+
+| ID | 级别 | 状态 | 缺陷 | 修复方式 | 回归断言 |
+| --- | --- | --- | --- | --- | --- |
+| P2-01 | P2 | 已修复/已复测 | 开始专注弹窗默认取**非预设**计划值（如 30 分钟）时，自定义输入框为空，但文案/高亮显示「本轮 30 分钟」 | `app.js` `sync()`：非预设且输入框未聚焦时回填分钟数 | e2e S3：`customValue === '30'` |
+| P2-02 | P2 | 已修复/已复测 | 删除记录后立即「清空全部记录」，残留的「撤销」toast 仍可把已清空记录写回（0→1 条） | `app.js` `onClearRecords` 确认回调：清空记录时同步清空 toast 栈 | e2e S5：清空后 `toast-action` 不存在且记录保持 0 |
+| P2-03 | P2 | 已修复/已复测 | 开始专注弹窗的 Tab 焦点陷阱只含取消/确定，键盘用户无法到达时长 chip / 自定义输入 | `app.js` 新增 `getModalFocusables()`：收集 `#modalBody` 内可聚焦元素 + 取消/确定循环 | e2e S3：Tab 序列出现弹窗内 `INPUT`/`BUTTON` |
+
+修复前证据摘要（详细见证据文件）：
+
+- P2-01：计划 30 分钟的开弹窗中 `<input type=number>.value === ""`。
+- P2-03：连续 Tab 序列为 `["modalCancel","modalConfirm","modalCancel","modalConfirm"]`，无正文控件。
+- P2-02：删除 1 条 + 清空后记录数 0，点击残留「撤销」后记录数变为 1。
+
+> 说明：首轮运行中 3 条缺陷以 `known defect` 形式记录、不阻塞场景（保持测试可重复）；修复后已改为硬断言，
+> 未来若回归会直接让 e2e 失败。
+
+## 8. 关键正确性数据摘录
+
+同一任务（预期完成 2 小时、计划单轮 25 分钟，本轮选择 15 分钟）的完整流程，冻结时钟快进得到：
+
+| 事件 | 墙钟（任务耗时） | 本轮专注 | 本轮预期 | 累计专注 | 已完成轮次 |
+| --- | --- | --- | --- | --- | --- |
+| 开始 | 0 | 0 | 15 | 0 | 0 |
+| 5 分钟 | 5 分钟 | 5 分钟 | 15（还剩 10:00） | 0 | 0 |
+| 17 分钟（超预期 2 分钟） | 17 分钟 | 17 分钟 | 本轮达标、不自动停 | 0 | 0 |
+| 18 分钟暂停 | 18 分钟 | 18 分钟 | 15 | 18 分钟 | 1 |
+| 暂停 7 分钟后 | **25 分钟** | 仍 18 分钟 | — | 18 分钟 | 1 |
+| 改下一轮预期 20 分钟并继续 +21 分钟 | 46 分钟 | 21 分钟 | 20（超 1 分钟） | 39 分钟 | 2 |
+| 「下一轮」+4 分钟后完成 | **50 分钟** | 4 分钟 | 20 | 43 分钟 | 3 |
+
+完成记录（UI 与 localStorage 双向断言）：`任务耗时 实际 50 分钟 / 预期 2 小时（快 1 小时 10 分钟）`；
+`专注 3 轮 · 共 43 分钟 · 平均 14 分钟/轮（预期 18 分钟）`；今日概览：专注 43 分钟、平均 14（预期 18）、
+完成任务 1（共 3 轮）、连续 1 天；效率对比任务 `快 1 小时 10 分钟`（绿色）、专注均值 `-4 分钟`（警示色）；
+近 7 天柱今日有高度；`focus.session.v3` 清除、`focus.records.v3` 与 `focus.tasks.v3` 持久化。
+
+其他经断言的关键数据：
+
+- 键盘流程：空格暂停（5 分钟→1 轮）/继续、N 立即换轮、Enter 完成、Esc 关弹窗；任务耗时 12 分钟 vs 专注 10 分钟。
+- 刷新恢复：运行中刷新 → paused、2 轮、当前轮 2 分钟、任务耗时 5 分钟；任务清单不重复（3 个任务）。
+- 孤儿会话：仅存 `focus.session.v3`（任务不在清单）→ 自动补建「孤儿任务」待办并恢复 1 轮 10 分钟。
+- v2 迁移：2 条旧记录（15/25、20/15 分钟）+ 旧会话（45 分钟）+ 旧设置（light、30 分钟）全部迁移；
+  旧键保留；`今日 任务 2 / 共 3 轮 / 平均 12 / 预期 —`；无 console error。
+
+## 9. 已知取舍 / 未覆盖范围
+
+**产品已知取舍（与实现/文档一致，非缺陷）**
+
+- 轮次最短 1 秒（`MIN_ROUND_MS=1000`）：不足 1 秒的轮次不计入轮次，避免误触空轮。
+- 刷新/崩溃精度：运行中每 4 秒落盘一次 + `beforeunload` 落盘；恢复时以最后 `savedAt` 收口当前轮。
+  正常刷新不丢时间；若浏览器崩溃/强杀（无 beforeunload），最多回退约 4 秒（与 README 取舍一致）。
+- 显示精度：时长文案按整分钟四舍五入（`formatSpan`），计时器秒级向下取整；差异 <30 秒显示「持平」。
+- 连续天数：若今天尚无记录，则从昨天起向前统计连续天（常见 streak 口径）。
+- 「结束本次专注」（×）丢弃本次轮次、不生成记录；任务保留，之后重新开始会重置任务墙钟起点。
+- v2 迁移记录没有每轮预期（旧 rounds 只有实际值），其「专注均值 · 预期」显示 `—`、差异为空（数据诚实）。
+- 删除进行中任务会结束会话且不生成记录（规格明确要求）。
+
+**未覆盖 / 局限**
+
+- E2E 仅在 Linux headless Chrome 156 单浏览器验证；未覆盖 Firefox/Safari、真实移动设备触摸、真实系统时钟跨天/休眠。
+- 时钟为冻结+快进，未验证真实 `setInterval` 节流、跨日切换、系统时间回拨等场景（核心纯逻辑的 `now` 参数化已覆盖边界）。
+- 提示音（Web Audio）、彩带、动画细节仅保证不报错/不阻塞，不做听感/帧率断言；e2e 用 reduced-motion 稳定截图。
+- 移动端仅 390×844（另做 1440×900 桌面）；平板断点未逐一截图。
+- 跨标签页 `storage` 事件仅代码层检查，未做双标签页并发编辑压测。
+- localStorage 容量/写入失败（quota）在 core 以异常注入覆盖，未在浏览器中实测。
+
+## 10. 截图索引（`.qa/v3-*.png`）
+
+| 文件 | 视口/主题 | 内容 |
+| --- | --- | --- |
+| `v3-desktop-empty-dark.png` | 1440×900 深色 | 干净初始状态：空任务清单、空记录、今日 0 |
+| `v3-desktop-tasks-dark.png` | 1440×900 深色 | 三个任务（含自定义 90/30）+ 表单默认值 |
+| `v3-desktop-tasks-light.png` | 1440×900 浅色 | 浅色任务清单 + 侧栏记录/统计 |
+| `v3-desktop-start-modal.png` | 1440×900 深色 | 开始专注弹窗；任务计划 30 分钟 → 自定义框回填 30（P2-01 修复验证） |
+| `v3-desktop-session.png` | 1440×900 深色 | 运行中 17:00、本轮达标绿色态、4 项会话统计 |
+| `v3-desktop-paused.png` | 1440×900 深色 | 暂停态：已完成 1 轮、实际 18/预期 15、下一轮预期面板、继续/完成任务 |
+| `v3-desktop-complete-modal.png` | 1440×900 深色 | 完成任务弹窗：任务耗时/专注轮次对比与说明 |
+| `v3-desktop-records-dark.png` | 1440×900 深色 | 完成记录（实际/预期 + 快慢）、今日概览、效率对比、近 7 天 |
+| `v3-desktop-records-light.png` | 1440×900 浅色 | 同上，浅色主题 |
+| `v3-mobile-tasks.png` | 390×844 深色 | 移动端任务清单（无横向溢出） |
+| `v3-mobile-session.png` | 390×844 深色 | 移动端专注会话 04:00（无横向溢出） |
+| `v3-mobile-paused.png` | 390×844 深色 | 移动端暂停态 + 下一轮预期面板（按钮/面板不超视口） |
+
+## 11. 归档
+
+- 旧 **v2** QA 报告：`.qa/qa-report-v2-archive.md`（本文件替换前的 `qa-report.md`，sha256 `cc54730d…`）
+- 更早 v1 报告：`.qa/qa-report-v1-archive.md`（历史留存）
+- 修复前缺陷证据：`.qa/v3-defects-prefix-evidence.md`
+- e2e 明细结果：`.qa/v3-e2e-results.json`
+
+## 12. 建议（非阻塞，P3）
+
+1. 可考虑为开始专注弹窗补充 `aria-describedby`/错误文本的 `role=alert`，让屏幕阅读器直接播报自定义时长越界信息。
+2. e2e 可加入跨日快进（推进 24h）验证「今日统计/连续天数」在真实日期翻转时的 UI 刷新（当前由 core `summarize` 单元测试覆盖）。
+3. 若要上线 GitHub Pages，建议把本 QA 脚本接入 CI（Node 24 + Chrome headless），保证每次改动跑 `node --test` + `node tests/e2e.cjs`。
 
 ---
 
-## 11. 附录
+## 附录 A：单元测试用例全名（64）
 
-### 11.1 产物文件
+```text
+v3 API surface: every documented export exists
+constants: VERSION=3, v3 storage keys, limits and defaults
+clampExpectedTaskMs: default, min, max, rounding
+clampExpectedFocusMs: default, min, max
+formatClock rounds up, formatElapsed rounds down
+formatSpan: below a minute, minutes, hours
+minutesLabel: whole-minute label used by today stats
+formatTimeOfDay / dateKey / parseDateKey
+formatDayLabel: 今天 / 昨天 / same-year / other-year / raw key
+createTask: defaults, trimming, clamping, generated id
+createTask: title limited to 60 chars, unique ids
+normalizeTask: rejects invalid shapes, keeps + clamps valid ones
+sanitizeTasks / addTask / removeTask / findTask
+createSession: derives plan from task, custom round expectation wins
+normalizeSession: invalid → null, phases + rounds sanitized
+getRoundElapsedMs: running stopwatch, paused frozen, clamped at zero
+getCompletedRounds / getFocusTotalMs / getAverageFocusMs
+getTaskElapsedMs: wall clock from first start (pauses included)
+round target helpers: expected / actual / remaining / overtime / progress / reached
+getLastRound
+pauseSession: ends + counts the running round, keeps the task paused
+pauseSession: 0ms / 999ms rounds are not counted, 1000ms is
+pauseSession: pausing an already paused session is a safe no-op
+setNextExpectedFocusMs: changes only the next round plan, clamps input
+resumeSession: paused → running with the next round plan
+resumeSession: default plan is the paused session nextExpectedFocusMs
+startNextRound from running: ends current round and starts another immediately
+startNextRound: sub-second current round is skipped, new round still starts
+startNextRound from paused: starts a round with nextExpectedFocusMs, counts nothing
+completeSession: rejects sessions with no countable round
+completeSession: running session records expected vs actual task + rounds
+completeSession: task duration is wall clock, includes paused gaps
+completeSession: task duration never smaller than focus total
+completeSession: mixed round expectations weight the focus target
+completeSession: completing while paused keeps all recorded rounds
+full session flow: expected/actual metrics line up with the v3 spec
+restoreSession: running session is closed as a round and becomes paused
+restoreSession: sub-second open round is dropped, previous rounds kept
+restoreSession: already paused session stays paused with rounds intact
+restoreSession: invalid payloads return null / degrade safely
+normalizeRecord: v3 record round-trips
+normalizeRecord: rejects missing title / timestamps / zero focus
+normalizeRecord: legacy v2 field names migrate
+normalizeRecord: legacy object rounds without actualMs are dropped safely
+normalizeRecord: roundsTotal/roundsWithExpected are coherent
+recordMetrics: current v3 record
+recordMetrics: focus target weighted by roundsWithExpected, not roundsTotal
+recordMetrics: faster than expected is positive, slower is negative
+sanitizeRecords: sort desc, drop junk, cap at MAX_RECORDS
+addRecord / removeRecord / groupRecords
+summarize: empty records produce an all-zero summary
+summarize: aggregates today only, keeps overall total
+summarize: streak breaks on a gap and counts from yesterday if today is empty
+summarize: record without dateKey falls back to endedAt day
+storage: tasks round-trip and bad data falls back safely
+migration: v2 session becomes a todo task (old keys preserved)
+migration: v3 tasks win over the legacy session when both exist
+migration: v2 records become v3 records under the new key
+migration: corrupt v3 records key still migrates legacy records
+migration: v3 records win over legacy records
+settings: defaults, normalization and v2 migration
+session storage: save / load / clear round-trip
+records storage: save / load round-trip with sanitization
+integration: refresh recovery keeps rounds, then the record stays honest
+```
 
-| 文件 | 说明 |
+## 附录 B：E2E 场景与断言数（最近一次完整运行）
+
+| 场景 | 断言数 | 说明 |
+| --- | --- | --- |
+| S1 初始状态（干净 origin） | 24 | 空任务/空记录/零统计/默认深色/settings 初始化 |
+| S2 任务清单：自定义校验 / 多任务 / 默认值持久化 | 28 | 空标题、1441、481 越界、自定义任务、三任务顺序、刷新持久化、无横向溢出 |
+| S3 开始专注弹窗：默认计划值 / 自定义校验 | 33 | 默认 30 回填（P2-01）、0/481 拦截、Tab 可达（P2-03）、启动会话初态 |
+| S4 主流程：正计时 → 达标不停 → 暂停计轮 → 改预期 → 下一轮 → 完成记录 | 122 | 5/17/18/25/46/50 分钟节点；记录与今日统计/效率/主题/刷新持久化 |
+| S5 记录操作：删除撤销 / 清空确认 / 持久化 | 27 | 删除撤销、清空二次确认、清空同步清空旧撤销（P2-02）、刷新后为空 |
+| S6 返回清单 / 继续 / 阻止并发任务 / 刷新恢复 / 删除任务 | 61 | 活动行置顶/进度、并发阻止、继续弹窗、运行中刷新恢复、×/删除/0 轮完成 |
+| S7 键盘快捷键（空格 / N / Enter / Esc） | 19 | 暂停/继续/换轮/完成、Esc 关弹窗、记录数值 |
+| S8 移动端 390×844 无横向溢出 | 13 | 任务/运行/暂停三视图 scrollWidth 与按钮/面板几何 |
+| S9 v2 数据迁移（records / session / settings） | 23 | 记录/会话/设置迁移、旧键保留、统计生效、无 console error |
+| S10 孤儿会话恢复：任务不在清单时补建待办 | 11 | 运行中刷新→paused、10 分钟轮次、补建任务可继续 |
+| **合计** | **361** | 场景 10/10 通过，exit 0，console error 0 |
+
+> 断言计数为脚本内 `assertEq/assertOk/assertIncludes/assertMatches/assertDeepEq` 的调用次数（含逐元素循环断言），
+> 不是 node:test 的用例数。
+
+---
+
+## 附录 C：Lead 最终复跑（样式定稿后）
+
+设计评审在 QA 最终运行之后又精修了 `styles.css`（仅视觉；未改 `index.html` / `app.js` / `focus-core.js`）。Lead 在最终定稿上重新完整复跑：
+
+| 文件 | 最终 hash |
 | --- | --- |
-| `tests/core.test.js` | **v2 重写**：34 项 node:test 单元测试（纯逻辑、零依赖） |
-| `tests/e2e.cjs` | **v2 重写**：16 项 CDP 端到端测试（可控时钟、自动起停 Chrome、截图、console 断言） |
-| `qa-report.md` | 本报告（v2） |
-| `.qa/e2e-results-v2.json` | 最终 e2e 机器可读结果（tests/consoleErrors/observations/screenshots/environment） |
-| `.qa/v2-source-final.sha256` / `.stat` | 最终源码快照 |
-| `.qa/v2-source-baseline.sha256` / `.stat` | QA 开始（v2）基线 |
-| `.qa/v2-final-run-before.sha256` / `-after.sha256` | 最终验证运行前后的源码 hash |
-| `.qa/unit-final.log`、`.qa/e2e-final.log` | 最终验证的原始输出 |
-| `.qa/qa-report-v1-archive.md` | 旧 v1 语义 QA 报告（历史归档） |
-| `.qa/blank.html` | E2E 同源清理页 fixture（不加载应用脚本） |
-| `.qa/v2-*.png` | 13 张 v2 关键截图 |
-
-### 11.2 harness 摘要
-
-- `QA_ONLY=B2,B4 node tests/e2e.cjs` 可只跑指定场景。
-- 每个场景重置到 `2026-10-24 10:00`（可控时钟）并清空 localStorage；`refresh()` 保留 localStorage 与时钟偏移以验证持久化恢复。
-- 断言失败不中断套件：每个场景独立重置，最终退出码 1。
-- 失败信息统一包含 label + 期望 + 实际；B16 汇总全流程 console 错误与未捕获异常。
-
-### 11.3 最终验证记录
+| `styles.css` | `e34281dd4596acf9ca72ec310fa7524c1be9f9839537f2a2f0febb3d62d47335` |
+| `app.js` | `6f5d20f3db2193c6129cf44d5fca9f02675848a0970baf4e85ec50289d44acaf` |
+| `index.html` | `743610dd02571e92e42cb945beb54a2e19765b5f8b61cc12e45573637a112cd9` |
+| `focus-core.js` | `a5b2b88a8ff68d16ed71d990feb083907c325f0703817e8db01a5ed63e3b16a0` |
 
 ```
-2026-10-24T03:03:5xZ  记录最终快照 sha256（§2；styles.css 最后变更 03:02:27）
-2026-10-24T03:04:02Z  node --test tests/core.test.js
-                      → ℹ tests 34 / pass 34 / fail 0（duration 205ms）
-2026-10-24T03:04:02Z  node tests/e2e.cjs 开始
-2026-10-24T03:04:40Z  node tests/e2e.cjs 结束
-                      → 测试 16 / 通过 16 / 失败 0；console 错误 0；警告 0；截图 13 张
-2026-10-24T03:04:5xZ  sha256sum 运行前后比对 → 4 个源码文件 hash 完全一致
+node --test tests/core.test.js  → 64 pass / 0 fail
+node tests/e2e.cjs              → 10/10 场景、361 项断言通过、0 console error
 ```
 
-**最终结论：v2 语义在当前快照上功能验证通过，可合并。** 无 P0/P1/P2 功能缺陷；P3 观察项（O1/O4 为 README 已声明取舍，O2 仅损坏数据可见，O3 为交互一致性小差异）均不影响正常使用。
+最终截图同步更新到 `screenshots/`，QA 证据仍在 `.qa/`，设计审计在 `.design/after-v3/`。

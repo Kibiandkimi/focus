@@ -834,7 +834,7 @@ kbd {
   transition: color 0.2s;
 }
 
-.session[data-target-reached="true"] .eyebrow {
+.session[data-round-reached="true"] .eyebrow {
   color: var(--success);
 }
 
@@ -954,7 +954,7 @@ kbd {
   animation: live-pulse 2.4s ease-in-out infinite;
 }
 
-.session[data-target-reached="true"][data-phase="running"] .timer-phase::before {
+.session[data-round-reached="true"][data-phase="running"] .timer-phase::before {
   background: var(--success);
   box-shadow: 0 0 0 3px var(--glow), 0 0 10px var(--glow);
 }
@@ -1009,73 +1009,73 @@ kbd {
 }
 
 /* target reached: green, calm, and still obviously live */
-.session[data-target-reached="true"] .eyebrow {
+.session[data-round-reached="true"] .eyebrow {
   color: var(--text-faint);
 }
 
-.session[data-target-reached="true"] {
+.session[data-round-reached="true"] {
   --ring-start: #9fe8c6;
   --ring-end: #4fbd8d;
   --glow: rgba(88, 200, 151, 0.14);
 }
 
-.session[data-target-reached="true"] .timer {
+.session[data-round-reached="true"] .timer {
   color: var(--success);
   text-shadow: 0 0 40px var(--glow);
 }
 
-.session[data-target-reached="true"] .timer-phase {
+.session[data-round-reached="true"] .timer-phase {
   color: var(--success);
 }
 
-.session[data-target-reached="true"] .timer-sub,
-.session[data-target-reached="true"] .session-note {
+.session[data-round-reached="true"] .timer-sub,
+.session[data-round-reached="true"] .session-note {
   color: var(--text-muted);
 }
 
-.session[data-target-reached="true"] .ring-progress {
+.session[data-round-reached="true"] .ring-progress {
   filter: drop-shadow(0 0 10px rgba(88, 200, 151, 0.26));
 }
 
-.session[data-target-reached="true"] .ring-track {
+.session[data-round-reached="true"] .ring-track {
   stroke: rgba(126, 226, 184, 0.14);
 }
 
-.session[data-target-reached="true"] .ring-glow {
+.session[data-round-reached="true"] .ring-glow {
   animation: breathe 4.5s ease-in-out infinite;
 }
 
 /* paused + reached: paused wins the hierarchy */
-.session[data-phase="paused"][data-target-reached="true"] .timer {
+.session[data-phase="paused"][data-round-reached="true"] .timer {
   color: var(--success);
   opacity: 0.5;
   text-shadow: none;
 }
 
-.session[data-phase="paused"][data-target-reached="true"] .timer-phase {
+.session[data-phase="paused"][data-round-reached="true"] .timer-phase {
   color: var(--text-faint);
 }
 
-.session[data-phase="paused"][data-target-reached="true"] .ring-glow {
+.session[data-phase="paused"][data-round-reached="true"] .ring-glow {
   animation: none;
   opacity: 0.3;
 }
 
-.session[data-phase="paused"][data-target-reached="true"] .ring-progress {
+.session[data-phase="paused"][data-round-reached="true"] .ring-progress {
   filter: none;
 }
 
-[data-theme="light"] .session[data-target-reached="true"] {
+[data-theme="light"] .session[data-round-reached="true"] {
   --ring-start: #2f9c70;
   --ring-end: #1a6a4c;
   --glow: rgba(35, 123, 87, 0.12);
 }
 
-[data-theme="light"] .session[data-target-reached="true"] .ring-progress {
+[data-theme="light"] .session[data-round-reached="true"] .ring-progress {
   filter: drop-shadow(0 0 9px rgba(35, 123, 87, 0.2));
 }
 
-[data-theme="light"] .session[data-target-reached="true"] .ring-track {
+[data-theme="light"] .session[data-round-reached="true"] .ring-track {
   stroke: rgba(35, 123, 87, 0.14);
 }
 
@@ -1973,8 +1973,8 @@ kbd {
   }
 
   .record-delete {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     opacity: 0.55;
   }
 
@@ -2090,5 +2090,1588 @@ kbd {
 
   .confetti-canvas {
     display: none;
+  }
+}
+
+/* ==========================================================================
+   v3 — 任务清单 / 单轮专注 / 任务耗时与专注效率（视觉打磨）
+   - 任务清单：紧凑 composer、次级「开始专注」、首屏可见 + 列表内滚动
+   - 专注会话：运行/暂停/本轮达标 一屏内不裁切（1440/1024/390）
+   - 侧栏：今日概览 2×2、效率对比两行、近 7 天、完成记录两行对比
+   ========================================================================== */
+
+/* ---- shell：把更多视口留给内容，两栏同底 ------------------------------- */
+
+@media (min-width: 921px) {
+  .app-shell {
+    padding-top: 26px;
+    padding-bottom: 16px;
+  }
+
+  .topbar {
+    padding-bottom: 16px;
+  }
+
+  .layout {
+    gap: 20px;
+  }
+
+  .footer {
+    margin-top: 16px;
+  }
+
+  .stage > .card {
+    min-height: 0;
+  }
+}
+
+/* ==========================================================================
+   1. 任务清单页
+   ========================================================================== */
+
+.tasks-view {
+  display: flex;
+  flex-direction: column;
+  padding: 26px 30px 18px;
+  overflow: hidden;
+}
+
+.tasks-head .eyebrow {
+  margin-bottom: 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+}
+
+.tasks-head .headline {
+  margin-bottom: 8px;
+  font-size: clamp(25px, 2.45vw, 31px);
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+}
+
+.tasks-head .subhead {
+  margin-bottom: 18px;
+  max-width: 42em;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+/* composer：名称+添加同一行，两组 chips 各占一行，压缩高度但保持呼吸 */
+
+.task-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  column-gap: 12px;
+  row-gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.task-form > .field {
+  margin-bottom: 0;
+}
+
+.task-form > .field:first-child {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.task-form > .field:first-child .field-label {
+  margin-bottom: 6px;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+}
+
+.task-form .text-input {
+  min-height: 48px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  font-size: 15px;
+}
+
+.btn-add-task {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  height: 48px;
+  margin: 0;
+  padding: 0 20px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
+  box-shadow: 0 10px 24px -16px var(--accent-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-add-task kbd {
+  font-size: 10px;
+}
+
+.task-form-grid {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.task-form-grid .field {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+  margin: 0;
+}
+
+.task-form-grid .field-label-row {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  margin: 0;
+  min-width: 0;
+}
+
+.task-form-grid .field-label {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.task-form-grid .field-note {
+  font-size: 10.5px;
+}
+
+.chips-compact {
+  gap: 6px;
+}
+
+.chips-compact .chip {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.chips-compact .chip-custom {
+  min-height: 34px;
+  padding: 2px 10px;
+}
+
+.chips-compact .chip-custom input {
+  width: 46px;
+  padding: 2px;
+  font-size: 12px;
+}
+
+.task-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0 6px;
+}
+
+.task-list-head h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.task-list-head .count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+}
+
+.task-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -8px;
+  padding: 2px 8px 4px;
+  scrollbar-gutter: stable;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  transition: background 0.18s, border-color 0.18s;
+}
+
+.task-row:hover {
+  background: var(--surface-2);
+}
+
+.task-row:hover .task-start:not(.is-disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.task-row.is-active {
+  background: var(--accent-ghost);
+  border-color: var(--accent-border);
+}
+
+.task-row-main {
+  min-width: 0;
+}
+
+.task-row-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-row-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-row-progress {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--accent);
+  letter-spacing: 0.01em;
+}
+
+[data-theme="light"] .task-row-progress {
+  color: var(--accent-strong);
+}
+
+.task-row.is-active .task-row-meta {
+  color: var(--text-muted);
+}
+
+.task-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* 主/次层级：行内「开始专注」默认是安静的次按钮，
+   只有当前活动任务（继续专注）才使用主色填充。 */
+
+.task-row .btn-small {
+  min-height: 32px;
+  padding: 6px 13px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.task-row .task-start {
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+.task-row .task-start:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  transform: none;
+  filter: none;
+  box-shadow: none;
+}
+
+.task-row .task-start:active {
+  transform: none;
+}
+
+.task-row.is-active .task-start {
+  color: var(--accent-contrast);
+  border-color: transparent;
+  background-image: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  box-shadow: 0 8px 20px -14px var(--accent-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.task-row.is-active .task-start:hover {
+  color: var(--accent-contrast);
+  border-color: transparent;
+  background-image: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  filter: brightness(1.04);
+  transform: translateY(-1px);
+}
+
+.task-row .task-start.is-disabled,
+.task-row .task-start.is-disabled:hover {
+  color: var(--text-faint);
+  background: transparent;
+  border-color: var(--border);
+  box-shadow: none;
+  opacity: 0.5;
+  transform: none;
+  filter: none;
+}
+
+.task-row .task-delete {
+  width: 26px;
+  height: 26px;
+  border-color: transparent;
+  background: transparent;
+  opacity: 0.38;
+}
+
+.task-row .task-delete:hover {
+  color: var(--danger);
+  background: rgba(255, 123, 114, 0.1);
+  transform: none;
+}
+
+.task-row:hover .task-delete,
+.task-row:focus-within .task-delete {
+  opacity: 0.9;
+}
+
+[data-theme="light"] .task-row .task-delete:hover {
+  background: rgba(184, 58, 48, 0.08);
+}
+
+.task-empty {
+  padding: 30px 12px 34px;
+}
+
+.task-empty svg {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 10px;
+}
+
+/* ==========================================================================
+   2. 专注会话页
+   ========================================================================== */
+
+.session {
+  display: flex;
+  flex-direction: column;
+  padding: 22px 30px 18px;
+  overflow: hidden;
+}
+
+.session .eyebrow {
+  margin-bottom: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+}
+
+.session-head {
+  gap: 12px;
+}
+
+.session-task {
+  font-size: clamp(18px, 1.75vw, 21px);
+  line-height: 1.3;
+}
+
+.session-task-meta {
+  margin-top: 5px;
+  font-size: 11px;
+}
+
+.session .icon-btn-ghost {
+  width: 34px;
+  height: 34px;
+}
+
+.timer-wrap {
+  width: min(300px, 78%);
+  margin: auto;
+}
+
+.timer {
+  font-size: clamp(44px, 5vw, 64px);
+}
+
+.timer-phase {
+  margin-bottom: 8px;
+  font-size: 10px;
+}
+
+.timer-sub {
+  margin-top: 10px;
+  font-size: 11px;
+}
+
+.session-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 10px;
+  padding: 13px 0 5px;
+  border-top: 1px solid var(--border);
+}
+
+.session-stat strong {
+  font-size: 16.5px;
+}
+
+.session-stat span {
+  margin-top: 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+
+.next-focus {
+  margin-top: 12px;
+  padding: 10px 13px 11px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.next-focus-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.next-focus-head .field-label {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+
+.next-focus .chips {
+  gap: 5px;
+}
+
+.next-focus .chip {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
+.next-focus .chip-custom {
+  min-height: 30px;
+  padding: 1px 8px;
+}
+
+.next-focus .chip-custom input {
+  width: 42px;
+  padding: 2px;
+  font-size: 11px;
+}
+
+.controls {
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.controls .btn {
+  min-width: 118px;
+  min-height: 44px;
+  padding: 11px 22px;
+  font-size: 14px;
+}
+
+.controls .btn-primary {
+  box-shadow: 0 10px 26px -16px var(--accent-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.session-links {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  margin-top: 8px;
+}
+
+.session-links .text-btn {
+  padding: 4px 8px;
+  margin: -4px -8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.session-links .text-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.session-links .session-note {
+  margin-top: 2px;
+  font-size: 10.8px;
+  line-height: 1.6;
+}
+
+.shortcut-hint {
+  margin-top: 8px;
+  font-size: 9.5px;
+}
+
+.session[data-phase="paused"] .shortcut-hint {
+  display: none;
+}
+
+/* light：选中 chip 用更深的赭色文字，保证 4.5:1 以上 */
+
+[data-theme="light"] .chip.is-active,
+[data-theme="light"] .chip-custom.is-active,
+[data-theme="light"] .chip-custom.is-active input {
+  color: var(--accent-strong);
+}
+
+/* ==========================================================================
+   3. 侧栏：今日概览 + 效率对比 + 近 7 天
+   ========================================================================== */
+
+.sidebar {
+  gap: 16px;
+}
+
+.stats-card {
+  flex: 0 0 auto;
+  padding: 18px 20px 15px;
+}
+
+.card-head {
+  margin-bottom: 12px;
+}
+
+.card-head h3 {
+  font-size: 14px;
+}
+
+.card-note {
+  font-size: 11px;
+}
+
+.stats-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.stats-grid-4 .stat {
+  padding-left: 0;
+  border-left: none;
+}
+
+.stats-grid-4 .stat:nth-child(even) {
+  padding-left: 13px;
+  border-left: 1px solid var(--border);
+}
+
+.stats-grid-4 .stat strong {
+  font-size: 24px;
+  line-height: 1.05;
+}
+
+.stats-grid-4 .stat strong em {
+  font-size: 11px;
+}
+
+.stats-grid-4 .stat small {
+  margin-top: 3px;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+}
+
+.stat-sub {
+  margin-top: 1px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+/* 效率对比：一行「标签 + 差异」，一行「实际 / 预期」。
+   差异用克制的绿（更优）与暖橙（更慢），避免高饱和红绿对撞。 */
+
+.efficiency {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.eff-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label delta"
+    "value value";
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 1px;
+  font-size: 11px;
+}
+
+.eff-label {
+  grid-area: label;
+  width: auto;
+  flex-shrink: 0;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+}
+
+.eff-value {
+  grid-area: value;
+  flex: initial;
+  min-width: 0;
+  font-size: 10.8px;
+  color: var(--text-muted);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.eff-delta {
+  grid-area: delta;
+  justify-self: end;
+  font-size: 10px;
+}
+
+.week-wrap {
+  margin-top: 11px;
+  padding-top: 10px;
+}
+
+.week-head {
+  margin-bottom: 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.week {
+  height: 44px;
+  gap: 6px;
+}
+
+.week-bar {
+  height: 32px;
+  border-radius: 7px;
+}
+
+.week-day {
+  font-size: 9.5px;
+}
+
+/* ==========================================================================
+   4. 完成记录：两行对比（标签+差异 / 实际·预期），可读不截断
+   ========================================================================== */
+
+.records-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px 18px 8px;
+}
+
+.records-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  gap: 2px;
+  margin: 0 -8px;
+  padding: 0 8px 6px;
+  scrollbar-gutter: stable;
+}
+
+.record-group {
+  padding-bottom: 2px;
+}
+
+.record-date {
+  margin: 10px 2px 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+}
+
+.record {
+  display: grid;
+  grid-template-columns: 5px minmax(0, 1fr) 24px;
+  align-items: start;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 12px;
+}
+
+.record-dot {
+  width: 5px;
+  height: 5px;
+  margin-top: 5px;
+  box-shadow: 0 0 0 2px var(--accent-ghost);
+}
+
+.record-task {
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.record-meta {
+  margin-top: 1px;
+  font-size: 10.2px;
+}
+
+.record-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label delta"
+    "value value";
+  align-items: baseline;
+  column-gap: 8px;
+  margin-top: 3px;
+  font-size: 10.5px;
+}
+
+.rm-label {
+  grid-area: label;
+  width: auto;
+  flex-shrink: 0;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+}
+
+.rm-value {
+  grid-area: value;
+  flex: initial;
+  min-width: 0;
+  font-size: 10.3px;
+  color: var(--text-muted);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+.rm-delta {
+  grid-area: delta;
+  justify-self: end;
+  margin-left: 0;
+  font-size: 10px;
+}
+
+.record-delete {
+  width: 24px;
+  height: 24px;
+  align-self: center;
+  opacity: 0.32;
+}
+
+.record-delete svg {
+  width: 12px;
+  height: 12px;
+}
+
+.record:hover .record-delete,
+.record:focus-within .record-delete,
+.record-delete:focus-visible {
+  opacity: 1;
+}
+
+/* ==========================================================================
+   5. 开始专注弹窗（不与页面主按钮抢层级）
+   ========================================================================== */
+
+.modal {
+  width: min(456px, 100%);
+  padding: 24px 24px 20px;
+  border-radius: 22px;
+}
+
+.modal h3 {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.modal-body {
+  font-size: 12.5px;
+  line-height: 1.72;
+}
+
+.start-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.start-task-name {
+  font-size: 14px;
+}
+
+.start-task-meta {
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+.start-focus-label {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.start-modal .chips {
+  gap: 5px;
+}
+
+.start-modal .chip {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+
+.start-modal .chip-custom {
+  min-height: 32px;
+  padding: 1px 8px;
+}
+
+.start-modal .chip-custom input {
+  width: 42px;
+  padding: 2px;
+  font-size: 11.5px;
+}
+
+.modal-actions {
+  margin-top: 18px;
+  gap: 8px;
+}
+
+.modal-actions .btn {
+  min-height: 40px;
+  padding: 10px 20px;
+  font-size: 13px;
+}
+
+.modal-actions .btn-primary {
+  box-shadow: 0 10px 24px -16px var(--accent-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* ==========================================================================
+   6. 响应式
+   ========================================================================== */
+
+@media (min-width: 921px) and (max-width: 1080px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) 344px;
+    gap: 18px;
+  }
+
+  .tasks-view,
+  .session {
+    padding-left: 26px;
+    padding-right: 26px;
+  }
+
+  .task-form-grid .field {
+    grid-template-columns: 96px minmax(0, 1fr);
+    column-gap: 12px;
+  }
+}
+
+@media (max-width: 920px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    grid-auto-rows: auto;
+    align-items: start;
+  }
+
+  .stage {
+    display: block;
+    min-width: 0;
+  }
+
+  .tasks-view,
+  .session {
+    overflow: visible;
+  }
+
+  .task-form-grid .field {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+
+  .task-list {
+    overflow: visible;
+  }
+
+  .sidebar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .records-card {
+    flex: 0 0 auto;
+    min-height: 240px;
+  }
+
+  .records-list {
+    flex: 0 1 auto;
+    max-height: 320px;
+  }
+
+  .session {
+    min-height: 0;
+  }
+
+  .stage > .card {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 680px) {
+  .app-shell {
+    padding: 12px 14px 14px;
+  }
+
+  .topbar {
+    padding-bottom: 12px;
+  }
+
+  .brand-word {
+    font-size: 17px;
+  }
+
+  .icon-btn {
+    width: 42px;
+    height: 42px;
+  }
+
+  .layout {
+    gap: 14px;
+  }
+
+  .card {
+    border-radius: 20px;
+  }
+
+  .footer {
+    margin-top: 14px;
+  }
+
+  /* --- task list --- */
+
+  .tasks-view {
+    padding: 20px 16px 16px;
+  }
+
+  .tasks-head .eyebrow {
+    margin-bottom: 7px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+  }
+
+  .tasks-head .headline {
+    margin-bottom: 6px;
+    font-size: 24px;
+    letter-spacing: -0.028em;
+  }
+
+  .tasks-head .subhead {
+    margin-bottom: 14px;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+
+  .task-form {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 10px;
+    padding-bottom: 12px;
+  }
+
+  .task-form > .field:first-child {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .task-form > .field:first-child .field-label {
+    margin-bottom: 5px;
+    font-size: 10.5px;
+  }
+
+  .task-form .text-input {
+    min-height: 46px;
+    border-radius: 13px;
+    font-size: 15.5px;
+  }
+
+  .btn-add-task {
+    grid-column: 1;
+    grid-row: auto;
+    width: 100%;
+    height: 46px;
+    margin-top: 2px;
+  }
+
+  .task-form-grid {
+    grid-column: 1;
+    grid-row: auto;
+    gap: 10px;
+  }
+
+  .task-form-grid .field {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 6px;
+  }
+
+  .task-form-grid .field-label-row {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .task-form-grid .field-label {
+    font-size: 11px;
+  }
+
+  .task-form-grid .field-note {
+    font-size: 10px;
+  }
+
+  .chips-compact {
+    gap: 5px;
+  }
+
+  .chips-compact .chip {
+    min-height: 36px;
+    padding: 7px 11px;
+    font-size: 12px;
+  }
+
+  .chips-compact .chip-custom {
+    min-height: 36px;
+    padding: 2px 9px;
+  }
+
+  .chips-compact .chip-custom input {
+    min-height: 28px;
+    padding: 4px 2px;
+  }
+
+  .task-list-head {
+    margin: 14px 0 4px;
+  }
+
+  .task-list-head h2 {
+    font-size: 12.5px;
+  }
+
+  .task-row {
+    gap: 8px;
+    padding: 9px 8px;
+  }
+
+  .task-row-title {
+    font-size: 13px;
+  }
+
+  .task-row-meta {
+    font-size: 10.5px;
+    white-space: normal;
+  }
+
+  .task-row-actions {
+    gap: 3px;
+  }
+
+  .task-row .btn-small {
+    min-height: 34px;
+    padding: 6px 11px;
+    font-size: 11.5px;
+  }
+
+  .task-row .task-delete {
+    width: 32px;
+    height: 32px;
+    opacity: 0.5;
+  }
+
+  /* --- session --- */
+
+  .session {
+    padding: 18px 16px 14px;
+  }
+
+  .session .eyebrow {
+    margin-bottom: 5px;
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+  }
+
+  .session-task {
+    font-size: 17px;
+  }
+
+  .session-task-meta {
+    margin-top: 3px;
+    font-size: 10px;
+    white-space: normal;
+  }
+
+  .session .icon-btn-ghost {
+    width: 32px;
+    height: 32px;
+  }
+
+  .timer-wrap {
+    width: min(224px, 61vw);
+  }
+
+  .timer {
+    font-size: 46px;
+  }
+
+  .timer-phase {
+    margin-bottom: 6px;
+    font-size: 9.5px;
+    letter-spacing: 0.24em;
+  }
+
+  .timer-sub {
+    margin-top: 8px;
+    max-width: 200px;
+    margin-left: auto;
+    margin-right: auto;
+    font-size: 10px;
+    line-height: 1.45;
+  }
+
+  .session-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 0;
+    margin-top: 8px;
+    padding: 11px 0 3px;
+  }
+
+  .session-stat strong {
+    font-size: 15px;
+  }
+
+  .session-stat span {
+    margin-top: 3px;
+    font-size: 9.5px;
+    letter-spacing: 0.05em;
+  }
+
+  .session-stat:nth-child(3) {
+    border-left: none;
+  }
+
+  .next-focus {
+    margin-top: 10px;
+    padding: 9px 11px;
+    border-radius: 13px;
+  }
+
+  .next-focus-head {
+    margin-bottom: 7px;
+  }
+
+  .next-focus-head .field-label {
+    font-size: 10px;
+  }
+
+  .next-focus .chip {
+    min-height: 31px;
+    padding: 5px 8px;
+    font-size: 10.5px;
+  }
+
+  .next-focus .chip-custom {
+    min-height: 31px;
+    padding: 1px 6px;
+  }
+
+  .next-focus .chip-custom input {
+    width: 34px;
+    min-height: 27px;
+    padding: 4px 2px;
+    font-size: 10.5px;
+  }
+
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .controls .btn {
+    min-width: 0;
+    min-height: 44px;
+    padding: 10px 6px;
+    font-size: 13px;
+  }
+
+  /* paused hides 下一轮: two equal columns instead of a gap */
+  .controls:has(> #nextBtn[hidden]) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .session-links {
+    margin-top: 6px;
+  }
+
+  .session-links .text-btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 6px 10px;
+    margin: -6px -10px;
+  }
+
+  .session-links .session-note {
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  .shortcut-hint {
+    display: none;
+  }
+
+  /* --- sidebar --- */
+
+  .sidebar {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .stats-card {
+    padding: 18px 18px 16px;
+  }
+
+  .stats-grid-4 {
+    gap: 12px 12px;
+  }
+
+  .stats-grid-4 .stat strong {
+    font-size: 23px;
+  }
+
+  .eff-label {
+    font-size: 9.5px;
+  }
+
+  .eff-value {
+    font-size: 10.5px;
+  }
+
+  .records-card {
+    min-height: 0;
+    padding: 18px 16px 10px;
+  }
+
+  .records-list {
+    flex: 0 1 auto;
+    max-height: 340px;
+  }
+
+  .record {
+    grid-template-columns: 5px minmax(0, 1fr) 32px;
+    padding: 8px;
+  }
+
+  .record-meta {
+    font-size: 10px;
+  }
+
+  .record-delete {
+    width: 32px;
+    height: 32px;
+    opacity: 0.55;
+  }
+
+  .text-btn {
+    padding: 8px;
+    margin: -8px;
+  }
+
+  .modal-backdrop {
+    padding: 16px;
+  }
+
+  .modal {
+    padding: 22px 20px 18px;
+    border-radius: 20px;
+  }
+
+  .start-modal .chips {
+    gap: 4px;
+  }
+
+  .start-modal .chip {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .start-modal .chip-custom {
+    padding: 1px 6px;
+  }
+
+  .start-modal .chip-custom input {
+    width: 34px;
+    font-size: 11px;
+  }
+
+  .modal-actions .btn {
+    flex: 1;
+  }
+
+  /* toasts dock under the topbar on phones so session controls stay tappable */
+  .toast-stack {
+    top: 68px;
+    bottom: auto;
+    left: 14px;
+    right: 14px;
+    max-width: none;
+    align-items: stretch;
+  }
+}
+
+/* short desktop / laptop (1024×768, 1366×768, 1280×800): keep the session in one screen */
+
+@media (max-height: 800px) and (min-width: 921px) {
+  .app-shell {
+    padding-top: 20px;
+    padding-bottom: 12px;
+  }
+
+  .topbar {
+    padding-bottom: 12px;
+  }
+
+  .footer {
+    margin-top: 12px;
+  }
+
+  .tasks-view {
+    padding: 22px 26px 14px;
+  }
+
+  .tasks-head .eyebrow {
+    margin-bottom: 8px;
+  }
+
+  .tasks-head .headline {
+    font-size: 26px;
+  }
+
+  .tasks-head .subhead {
+    margin-bottom: 14px;
+  }
+
+  .task-form {
+    row-gap: 10px;
+    padding-bottom: 12px;
+  }
+
+  .task-form .text-input {
+    min-height: 44px;
+  }
+
+  .btn-add-task {
+    height: 44px;
+  }
+
+  .chips-compact .chip {
+    min-height: 32px;
+    padding: 5px 11px;
+  }
+
+  .task-list-head {
+    margin-top: 12px;
+  }
+
+  .task-row {
+    padding: 8px 10px;
+  }
+
+  .session {
+    padding: 18px 26px 14px;
+  }
+
+  .session .eyebrow {
+    margin-bottom: 6px;
+  }
+
+  .session-task {
+    font-size: 19px;
+  }
+
+  .session-task-meta {
+    margin-top: 4px;
+  }
+
+  .timer-wrap {
+    width: min(252px, 56%);
+  }
+
+  .timer {
+    font-size: 54px;
+  }
+
+  .timer-sub {
+    margin-top: 8px;
+  }
+
+  .session-stats {
+    margin-top: 6px;
+    padding: 10px 0 2px;
+  }
+
+  .session-stat strong {
+    font-size: 15.5px;
+  }
+
+  .next-focus {
+    margin-top: 9px;
+    padding: 8px 11px 9px;
+  }
+
+  .next-focus-head {
+    margin-bottom: 6px;
+  }
+
+  .next-focus .chip {
+    min-height: 28px;
+    padding: 4px 9px;
+  }
+
+  .controls {
+    margin-top: 11px;
+  }
+
+  .controls .btn {
+    min-height: 40px;
+    padding: 9px 20px;
+  }
+
+  .session-links {
+    margin-top: 5px;
+  }
+
+  .session-links .session-note {
+    font-size: 10px;
+  }
+
+  .shortcut-hint {
+    margin-top: 5px;
+  }
+
+  .stats-card {
+    padding: 14px 18px 12px;
+  }
+
+  .card-head {
+    margin-bottom: 9px;
+  }
+
+  .stats-grid-4 {
+    gap: 8px 10px;
+  }
+
+  .stats-grid-4 .stat strong {
+    font-size: 21px;
+  }
+
+  .stats-grid-4 .stat small {
+    margin-top: 2px;
+    font-size: 10px;
+  }
+
+  .stat-sub {
+    font-size: 9.5px;
+  }
+
+  .efficiency {
+    margin-top: 8px;
+    padding-top: 8px;
+    gap: 6px;
+  }
+
+  .eff-value {
+    font-size: 10.3px;
+  }
+
+  .week-wrap {
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+
+  .week-head {
+    margin-bottom: 6px;
+  }
+
+  .week {
+    height: 40px;
+  }
+
+  .week-bar {
+    height: 29px;
+  }
+
+  .records-card {
+    padding: 14px 16px 8px;
+  }
+
+  .record {
+    padding: 6px 8px;
+  }
+
+  .record-metric {
+    margin-top: 2px;
+  }
+
+  .record-date {
+    margin: 7px 2px 3px;
+  }
+}
+
+/* touch devices: reveal the per-row / per-record delete affordance */
+
+@media (hover: none) {
+  .record-delete,
+  .task-row .task-delete {
+    opacity: 0.55;
+  }
+
+  .task-row:hover {
+    background: transparent;
+  }
+
+  .task-row.is-active:hover {
+    background: var(--accent-ghost);
+  }
+
+  .icon-btn:hover,
+  .btn-primary:hover,
+  .task-row .task-start:hover {
+    transform: none;
   }
 }
