@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0b0c0f">
+  <meta name="description" content="Focus — 设定任务与整体目标时长，按轮专注；暂停即结束一轮，目标时间只作提示，完成时记录实际时间与设定时间。">
+  <title>Focus · 专注计时</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='16'%20fill='%2317181d'/%3E%3Ccircle%20cx='32'%20cy='32'%20r='18'%20fill='none'%20stroke='%23ffac6b'%20stroke-width='6'%20stroke-linecap='round'%20stroke-dasharray='85%2028'%20transform='rotate(-90%2032%2032)'/%3E%3C/svg%3E">
+  <script>
+    // Set the theme before first paint to avoid a flash.
+    try {
+      var storedSettings = JSON.parse(localStorage.getItem('focus.settings.v1') || '{}');
+      document.documentElement.dataset.theme = storedSettings.theme === 'light' ? 'light' : 'dark';
+    } catch (error) {
+      document.documentElement.dataset.theme = 'dark';
+    }
+  </script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Focus 首页">
+        <span class="brand-mark" aria-hidden="true"><i></i></span>
+        <span class="brand-word">Focus</span>
+      </a>
+      <div class="topbar-right">
+        <span class="today-label" id="todayLabel"></span>
+        <button class="icon-btn" id="soundToggle" type="button" aria-label="关闭提示音" aria-pressed="true" title="提示音">
+          <svg class="icon icon-sound-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5 6.5 8.5H3v7h3.5L11 19V5Z"/>
+            <path d="M15 8.5a5 5 0 0 1 0 7"/>
+            <path d="M17.7 6a8.5 8.5 0 0 1 0 12"/>
+          </svg>
+          <svg class="icon icon-sound-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5 6.5 8.5H3v7h3.5L11 19V5Z"/>
+            <path d="m16 9.5 5 5"/>
+            <path d="m21 9.5-5 5"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="themeToggle" type="button" aria-label="切换到浅色主题" title="切换主题">
+          <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>
+          </svg>
+          <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2"/>
+            <path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="stage" aria-label="专注">
+        <!-- ---------------------------------------------------------- -->
+        <!-- Setup view                                                  -->
+        <!-- ---------------------------------------------------------- -->
+        <section class="card setup" id="setupView" aria-labelledby="setupHeadline">
+          <p class="eyebrow">FOCUS · 专注计时</p>
+          <h1 class="headline" id="setupHeadline">此刻，只想一件事。</h1>
+          <p class="subhead">写下要做的任务，设定整个任务的目标时长，按自己的节奏分轮完成。</p>
+
+          <form class="setup-form" id="setupForm" autocomplete="off" novalidate>
+            <label class="field" for="taskInput">
+              <span class="field-label">任务</span>
+              <input class="text-input" id="taskInput" name="task" type="text" maxlength="60" placeholder="例如：写完项目提案的第一版" required>
+            </label>
+
+            <div class="field">
+              <div class="field-label-row">
+                <span class="field-label" id="durationLabel">目标时长</span>
+                <span class="field-note" id="durationNote">整个任务 25 分钟</span>
+              </div>
+              <div class="chips" id="durationChips" role="radiogroup" aria-labelledby="durationLabel">
+                <button class="chip" type="button" role="radio" aria-checked="false" data-minutes="15">15 分钟</button>
+                <button class="chip is-active" type="button" role="radio" aria-checked="true" data-minutes="25">25 分钟</button>
+                <button class="chip" type="button" role="radio" aria-checked="false" data-minutes="45">45 分钟</button>
+                <button class="chip" type="button" role="radio" aria-checked="false" data-minutes="60">60 分钟</button>
+                <div class="chip chip-custom" id="customChip">
+                  <input id="customMinutes" type="number" min="1" max="480" step="1" inputmode="numeric" placeholder="自定义" aria-label="自定义目标分钟数">
+                  <span>分钟</span>
+                </div>
+              </div>
+            </div>
+
+            <button class="btn btn-primary btn-start" id="startBtn" type="submit">
+              <span>开始任务</span>
+              <kbd>↵</kbd>
+            </button>
+            <p class="fine-print">暂停即结束当前轮并计入轮次；目标时长只作提示，不会自动结束。记录只保存在此浏览器中。</p>
+          </form>
+        </section>
+
+        <!-- ---------------------------------------------------------- -->
+        <!-- Session view                                                -->
+        <!-- ---------------------------------------------------------- -->
+        <section class="card session is-hidden" id="sessionView" data-phase="running" data-target-reached="false" aria-label="任务专注计时" tabindex="-1">
+          <header class="session-head">
+            <div class="session-meta">
+              <p class="eyebrow" id="roundLabel">第 1 轮 · 专注中</p>
+              <h2 class="session-task" id="sessionTask">专注</h2>
+            </div>
+            <button class="icon-btn icon-btn-ghost" id="discardBtn" type="button" aria-label="放弃本次任务" title="放弃本次任务">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18"/>
+              </svg>
+            </button>
+          </header>
+
+          <div class="timer-wrap" id="timerWrap">
+            <div class="ring-glow" aria-hidden="true"></div>
+            <svg class="ring" viewBox="0 0 320 320" aria-hidden="true">
+              <defs>
+                <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop class="ring-stop-a" offset="0%"/>
+                  <stop class="ring-stop-b" offset="100%"/>
+                </linearGradient>
+              </defs>
+              <circle class="ring-track" cx="160" cy="160" r="146"/>
+              <circle class="ring-progress" id="ringProgress" cx="160" cy="160" r="146" transform="rotate(-90 160 160)"/>
+            </svg>
+            <div class="timer-center">
+              <p class="timer-phase" id="timerPhase">专注中</p>
+              <div class="timer" id="timeDisplay" aria-live="off">00:00</div>
+              <p class="timer-sub" id="timerSub">目标 25 分钟 · 还剩 25:00</p>
+            </div>
+          </div>
+
+          <div class="session-stats">
+            <div class="session-stat">
+              <strong id="sessionFocus">0 分钟</strong>
+              <span>本次专注</span>
+            </div>
+            <div class="session-stat">
+              <strong id="sessionRounds">0 轮</strong>
+              <span>已完成轮次</span>
+            </div>
+            <div class="session-stat">
+              <strong id="sessionProgress">0%</strong>
+              <span>目标进度</span>
+            </div>
+          </div>
+
+          <div class="controls" id="controls">
+            <button class="btn btn-primary" id="pauseBtn" type="button" title="结束当前轮并暂停任务">暂停</button>
+            <button class="btn btn-ghost" id="nextBtn" type="button" title="结束当前轮并马上开始下一轮">下一轮</button>
+            <button class="btn btn-ghost" id="completeBtn" type="button" title="结束任务并保存实际时间 / 目标时间">完成</button>
+          </div>
+
+          <p class="session-note">暂停会结束当前轮并计入轮次；目标时长只作提示，不会自动结束任务。</p>
+
+          <p class="shortcut-hint">
+            <kbd>空格</kbd> 暂停/继续 <span aria-hidden="true">·</span> <kbd>N</kbd> 下一轮 <span aria-hidden="true">·</span> <kbd>↵</kbd> 完成
+          </p>
+        </section>
+      </section>
+
+      <aside class="sidebar" aria-label="专注统计与记录">
+        <section class="card stats-card" aria-labelledby="statsTitle">
+          <div class="card-head">
+            <h3 id="statsTitle">今日专注</h3>
+            <span class="card-note" id="totalNote">还没有记录</span>
+          </div>
+          <div class="stats-grid">
+            <div class="stat">
+              <strong><span id="statTodayTime">0</span><em>分钟</em></strong>
+              <small>专注时长</small>
+            </div>
+            <div class="stat">
+              <strong><span id="statTodayRounds">0</span><em>轮</em></strong>
+              <small>完成轮次</small>
+            </div>
+            <div class="stat">
+              <strong><span id="statStreak">0</span><em>天</em></strong>
+              <small>连续专注</small>
+            </div>
+          </div>
+          <div class="week-wrap">
+            <div class="week-head">
+              <span>近 7 天</span>
+              <span class="week-total" id="weekTotal">0 分钟</span>
+            </div>
+            <div class="week" id="weekChart"></div>
+          </div>
+        </section>
+
+        <section class="card records-card" aria-labelledby="recordsTitle">
+          <div class="card-head">
+            <h3 id="recordsTitle">完成记录 <span class="count" id="recordsCount">0</span></h3>
+            <button class="text-btn" id="clearRecords" type="button">清空</button>
+          </div>
+          <div class="records-list" id="recordsList" aria-live="polite"></div>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <span>Focus</span>
+      <span>专注于当下，记录每一次投入。</span>
+    </footer>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+
+  <div class="modal-backdrop is-hidden" id="modalBackdrop">
+    <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalBody">
+      <h3 id="modalTitle">确认</h3>
+      <p class="modal-body" id="modalBody"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modalCancel" type="button">取消</button>
+        <button class="btn btn-primary" id="modalConfirm" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <canvas class="confetti-canvas" id="confettiCanvas" aria-hidden="true"></canvas>
+
+  <noscript>
+    <p class="noscript">Focus 需要启用 JavaScript 才能运行。</p>
+  </noscript>
+
+  <script src="focus-core.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

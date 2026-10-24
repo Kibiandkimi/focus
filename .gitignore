@@ -1,0 +1,6 @@
+.design/
+.qa/
+.preview/
+.chrome-profile/
+.DS_Store
+*.log
