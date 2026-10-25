@@ -315,3 +315,9 @@ FOCUS_APP_URL=http://127.0.0.1:4182/index.html node .design/shots-v3.cjs before-
 5. 会话卡 `overflow:hidden` 保留；未来若新增统计或文案，需同步收紧短屏媒体查询（当前 1440/1024/390 均无裁切）。
 6. 未改 HTML/JS：`.task-row` / `.start-modal` / `.next-focus` / `.record-metric` / `session-note` 等 Lead 新增结构全部保留，仅调整样式。
 7. 本轮截图对应 `app.js 6f5d20f3…`（2026-10-24 10:05）。若 Lead/QA 后续再改 `app.js` / `index.html`，应按 8.6 重跑截图与审计。
+
+---
+
+## 9. v3.1 语义修正说明（2026-10-25）
+
+用户反馈「暂停时间不应计入任务耗时」。Lead 已修正 core/UI 文案：任务耗时 = 各轮实际专注之和（不含暂停），会话页顶部 meta 由「任务已耗时（含暂停）」改为「任务耗时 实际 X / 预期 Y」，完成弹窗说明改为「按各轮实际专注累计，不含暂停」。本次只改文案与数据口径，样式结构不变，§8 的视觉审计与截图（历史语义数值）仍可作为 v3 布局参考；最终截图见 `screenshots/` 与 `.qa/v3-*.png`。

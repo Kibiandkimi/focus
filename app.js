@@ -6,7 +6,7 @@
  *     focus duration per round.
  *   - A focus session consists of focus rounds. Pause ends/counts a round and
  *     keeps the task active; resume starts the next round.
- *   - Task duration = wall clock from first focus start to completion (pauses count).
+ *   - Task duration = sum of actual focus time across rounds (pauses excluded).
  *   - Focus metrics = per-round planned vs actual focused time, average per round.
  *
  * Depends on focus-core.js (window.FocusCore) and index.html.
@@ -795,7 +795,7 @@
       `专注：${record.roundsTotal} 轮 · 共 ${Core.formatSpan(record.focusTotalMs)} · 平均 ${Core.formatSpan(
         metrics.avgFocusMs
       )}/轮${expectedFocusAvg != null ? `（预期 ${Core.formatSpan(expectedFocusAvg)}）` : ''}`,
-      '任务耗时包含轮间暂停；保存后会出现在完成记录中。',
+      '任务耗时按各轮实际专注累计，不含暂停；保存后会出现在完成记录中。',
     ];
 
     openModal({
@@ -992,9 +992,9 @@
     ui.sessionAvgFocus.textContent = rounds > 0 ? formatValue(Core.getAverageFocusMs(session)) : '—';
     ui.sessionTaskElapsed.textContent = formatValue(taskElapsed);
     ui.sessionRounds.textContent = `${rounds} 轮`;
-    ui.sessionTaskMeta.textContent = `任务预期 ${Core.formatSpan(
-      session.taskExpectedMs
-    )} · 已耗时 ${formatValue(taskElapsed)}（含暂停）`;
+    ui.sessionTaskMeta.textContent = `任务耗时 实际 ${formatValue(
+      taskElapsed
+    )} / 预期 ${Core.formatSpan(session.taskExpectedMs)}`;
 
     setDocumentTitle(
       paused ? `⏸ ${session.taskTitle} · Focus` : `${clock} · ${session.taskTitle}`

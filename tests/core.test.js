@@ -6,7 +6,7 @@
  *   - a session is a series of focus rounds; each round has its own expected
  *     focus (hint only) and actual focused time (stopwatch)
  *   - pause ends + counts the current round, keeps the task active
- *   - task duration = wall clock from first start to completion (pauses count)
+ *   - task duration = sum of actual focus time across rounds (pauses excluded)
  *   - records store expected vs actual task duration and per-round focus
  *   - v2 data (focus.*.v1 keys) migrates without data loss
  *
@@ -97,6 +97,8 @@ function makeRecordFixture(overrides) {
     v: 3,
     title: opts.title === undefined ? '写方案' : opts.title,
     expectedTaskMs: opts.expectedTaskMs === undefined ? HOUR : opts.expectedTaskMs,
+    // note: since v3.1 the normalized taskDurationMs is always derived from the rounds;
+    // the option is kept to exercise the legacy wall-clock→focus-total correction.
     taskDurationMs: opts.taskDurationMs === undefined ? 30 * MIN : opts.taskDurationMs,
     rounds: opts.rounds || [{ expectedMs: 25 * MIN, actualMs: 20 * MIN }],
     startedAt,
@@ -503,12 +505,25 @@ test('getCompletedRounds / getFocusTotalMs / getAverageFocusMs', () => {
   assert.equal(Core.getAverageFocusMs(withRounds), 15 * MIN);
 });
 
-test('getTaskElapsedMs: wall clock from first start (pauses included)', () => {
+test('getTaskElapsedMs: sum of actual focus time (pauses excluded)', () => {
   const session = runningSession({ now: NOW, openMs: 10 * MIN });
-  assert.equal(Core.getTaskElapsedMs(session, NOW), 10 * MIN);
-  const paused = { ...session, phase: 'paused' };
-  assert.equal(Core.getTaskElapsedMs(paused, NOW + 30 * MIN), 40 * MIN);
-  assert.equal(Core.getTaskElapsedMs(session, NOW - 60 * MIN), 0, 'never negative');
+  assert.equal(Core.getTaskElapsedMs(session, NOW), 10 * MIN, 'running: only the current round');
+  assert.equal(Core.getTaskElapsedMs(session, NOW + 5 * MIN), 15 * MIN, 'running: current round grows');
+
+  const withRounds = {
+    ...runningSession({ now: NOW, openMs: 5 * MIN }),
+    rounds: [{ expectedMs: 25 * MIN, actualMs: 12 * MIN }],
+  };
+  assert.equal(
+    Core.getTaskElapsedMs(withRounds, NOW),
+    17 * MIN,
+    'running: completed rounds + current round'
+  );
+  assert.equal(Core.getTaskElapsedMs(withRounds, NOW + 3 * MIN), 20 * MIN);
+
+  const paused = { ...withRounds, phase: 'paused' };
+  assert.equal(Core.getTaskElapsedMs(paused, NOW), 12 * MIN, 'paused: frozen at focus total');
+  assert.equal(Core.getTaskElapsedMs(paused, NOW + 60 * MIN), 12 * MIN, 'pause time is not added');
   assert.equal(Core.getTaskElapsedMs(null, NOW), 0);
 });
 
@@ -564,6 +579,11 @@ test('pauseSession: ends + counts the running round, keeps the task paused', () 
   assert.equal(result.session.savedAt, NOW);
   assert.equal(Core.getFocusTotalMs(result.session), 18 * MIN);
   assert.equal(Core.getTaskElapsedMs(result.session, NOW), 18 * MIN);
+  assert.equal(
+    Core.getTaskElapsedMs(result.session, NOW + 30 * MIN),
+    18 * MIN,
+    'paused task timer is frozen'
+  );
 });
 
 test('pauseSession: 0ms / 999ms rounds are not counted, 1000ms is', () => {
@@ -619,7 +639,11 @@ test('resumeSession: paused → running with the next round plan', () => {
   assert.equal(resumed.roundElapsedMs, 0);
   assert.equal(resumed.rounds.length, 1, 'previous rounds kept');
   assert.equal(Core.getRoundElapsedMs(resumed, NOW + 9 * MIN), 2 * MIN);
-  assert.equal(Core.getTaskElapsedMs(resumed, NOW + 9 * MIN), 27 * MIN, 'pause counts in task time');
+  assert.equal(
+    Core.getTaskElapsedMs(resumed, NOW + 9 * MIN),
+    20 * MIN,
+    'pause excluded: 18 min round 1 + 2 min round 2'
+  );
 
   const running = runningSession({ now: NOW });
   assert.equal(Core.resumeSession(running, NOW), running, 'running session unchanged');
@@ -701,26 +725,30 @@ test('completeSession: running session records expected vs actual task + rounds'
   assert.equal(record.dateKey, Core.dateKey(NOW + 18 * MIN));
 });
 
-test('completeSession: task duration is wall clock, includes paused gaps', () => {
+test('completeSession: task duration excludes paused gaps', () => {
   const session = Core.createSession({ task: makeTask({ expectedTaskMs: HOUR }), now: NOW });
   const paused = Core.pauseSession(session, NOW + 10 * MIN).session;
   // leave the task paused for 50 min, then complete
   const record = Core.completeSession(paused, NOW + 60 * MIN);
   assert.equal(record.focusTotalMs, 10 * MIN);
   assert.equal(record.roundsTotal, 1);
-  assert.equal(record.taskDurationMs, 60 * MIN, 'wall clock includes the pause');
+  assert.equal(record.taskDurationMs, 10 * MIN, 'paused time is not part of the task duration');
+  assert.equal(record.taskDurationMs, record.focusTotalMs);
+  assert.equal(record.startedAt, NOW);
+  assert.equal(record.endedAt, NOW + 60 * MIN, 'wall-clock timestamps are only a display range');
   assert.equal(record.expectedTaskMs, HOUR);
 });
 
-test('completeSession: task duration never smaller than focus total', () => {
+test('completeSession: task duration always equals the focus total', () => {
   const session = {
     ...Core.createSession({ task: makeTask(), now: NOW }),
-    startedAt: NOW + 5 * MIN, // wall = 5 min
+    startedAt: NOW + 5 * MIN, // wall-clock span = 5 min
     roundStartedAt: NOW, // but this round has actually run 10 min
   };
   const record = Core.completeSession(session, NOW + 10 * MIN);
   assert.equal(record.focusTotalMs, 10 * MIN);
-  assert.equal(record.taskDurationMs, 10 * MIN);
+  assert.equal(record.taskDurationMs, 10 * MIN, 'focus sum wins over wall-clock span');
+  assert.equal(record.taskDurationMs, record.focusTotalMs);
 });
 
 test('completeSession: mixed round expectations weight the focus target', () => {
@@ -751,7 +779,7 @@ test('completeSession: completing while paused keeps all recorded rounds', () =>
   assert.equal(record.rounds[0].actualMs, 10 * MIN);
   assert.equal(record.rounds[1].actualMs, 5 * MIN);
   assert.equal(record.focusTotalMs, 15 * MIN);
-  assert.equal(record.taskDurationMs, 20 * MIN);
+  assert.equal(record.taskDurationMs, 15 * MIN, 'task duration = sum of round focus');
 });
 
 test('full session flow: expected/actual metrics line up with the v3 spec', () => {
@@ -769,7 +797,11 @@ test('full session flow: expected/actual metrics line up with the v3 spec', () =
   session = Core.resumeSession(session, t0 + 25 * MIN);
   assert.equal(session.rounds.length, 1);
   assert.equal(session.expectedFocusMs, 20 * MIN);
-  assert.equal(Core.getTaskElapsedMs(session, t0 + 25 * MIN), 25 * MIN);
+  assert.equal(
+    Core.getTaskElapsedMs(session, t0 + 25 * MIN),
+    18 * MIN,
+    'the 7 min pause is not counted into the task duration'
+  );
 
   // switch to round 3 (target stays 20) and focus 4 more min
   step = Core.startNextRound(session, t0 + 46 * MIN);
@@ -791,14 +823,52 @@ test('full session flow: expected/actual metrics line up with the v3 spec', () =
   assert.equal(record.focusTotalMs, 43 * MIN);
   assert.equal(record.avgFocusMs, (43 / 3) * MIN);
   assert.equal(record.expectedFocusTotalMs, 55 * MIN);
-  assert.equal(record.taskDurationMs, 50 * MIN, 'pauses included in wall clock');
+  assert.equal(record.taskDurationMs, 43 * MIN, 'task duration = sum of round focus, pauses excluded');
+  assert.equal(record.taskDurationMs, record.focusTotalMs);
   assert.equal(record.expectedTaskMs, 2 * HOUR);
 
   const metrics = Core.recordMetrics(record);
   assert.equal(metrics.avgFocusMs, (43 / 3) * MIN);
   assert.equal(metrics.expectedFocusAvgMs, (55 / 3) * MIN);
-  assert.equal(metrics.taskDeltaMs, 70 * MIN, 'actual 50 vs expected 120 = 70 min early');
+  assert.equal(metrics.taskDeltaMs, 77 * MIN, 'actual 43 vs expected 120 = 77 min early');
   assertClose(metrics.focusDeltaMs, -4 * MIN, 'focus delta (43/3 - 55/3 min)');
+});
+
+test('task duration: a 7 minute pause between rounds is not counted', () => {
+  const t0 = D(2026, 10, 24, 9, 0, 0);
+  const task = makeTask({
+    title: '暂停不计任务耗时',
+    expectedTaskMs: HOUR,
+    expectedFocusMs: 25 * MIN,
+    now: t0,
+  });
+  let session = Core.createSession({ task, expectedFocusMs: 25 * MIN, now: t0 });
+
+  // round 1: 12 min of focus → task duration 12
+  let step = Core.pauseSession(session, t0 + 12 * MIN);
+  session = step.session;
+  assert.equal(Core.getTaskElapsedMs(session, t0 + 12 * MIN), 12 * MIN);
+
+  // paused for 7 min → frozen, nothing accumulates
+  assert.equal(Core.getTaskElapsedMs(session, t0 + 19 * MIN), 12 * MIN, 'paused 7 min excluded');
+
+  // resume + 5 min focus → new total 17
+  session = Core.resumeSession(session, t0 + 19 * MIN);
+  assert.equal(Core.getTaskElapsedMs(session, t0 + 19 * MIN), 12 * MIN);
+  step = Core.pauseSession(session, t0 + 24 * MIN);
+  session = step.session;
+  assert.equal(Core.getTaskElapsedMs(session, t0 + 24 * MIN), 17 * MIN, 'only focus time counts');
+
+  // complete at t0+40 (another 16 min paused) → task duration stays 17
+  const record = Core.completeSession(session, t0 + 40 * MIN);
+  assert.equal(record.focusTotalMs, 17 * MIN);
+  assert.equal(record.taskDurationMs, 17 * MIN, 'task duration == sum of round focus');
+  assert.equal(record.taskDurationMs, record.focusTotalMs);
+  assert.equal(record.roundsTotal, 2);
+  assert.equal(record.startedAt, t0);
+  assert.equal(record.endedAt, t0 + 40 * MIN);
+  const metrics = Core.recordMetrics(record);
+  assert.equal(metrics.taskDeltaMs, HOUR - 17 * MIN);
 });
 
 /* ======================================================================== *
@@ -822,7 +892,11 @@ test('restoreSession: running session is closed as a round and becomes paused', 
   assert.equal(restored.roundStartedAt, null);
   assert.equal(restored.roundElapsedMs, 0);
   assert.equal(Core.getFocusTotalMs(restored), 10 * MIN);
-  assert.equal(Core.getTaskElapsedMs(restored, NOW + 5 * MIN), 15 * MIN);
+  assert.equal(
+    Core.getTaskElapsedMs(restored, NOW + 5 * MIN),
+    10 * MIN,
+    'restored task time = closed round focus only'
+  );
 
   // and it can be persisted + loaded again
   assert.equal(Core.saveSession(storage, restored, NOW + 5 * MIN), true);
@@ -846,7 +920,7 @@ test('restoreSession: already paused session stays paused with rounds intact', (
   assert.equal(restored.phase, 'paused');
   assert.equal(restored.rounds.length, 1);
   assert.equal(restored.rounds[0].actualMs, 18 * MIN);
-  assert.equal(Core.getTaskElapsedMs(restored, NOW + 60 * MIN), 78 * MIN);
+  assert.equal(Core.getTaskElapsedMs(restored, NOW + 60 * MIN), 18 * MIN, 'paused time excluded');
 });
 
 test('restoreSession: invalid payloads return null / degrade safely', () => {
@@ -883,13 +957,37 @@ test('normalizeRecord: v3 record round-trips', () => {
   assert.equal(record.taskId, 't_1');
   assert.equal(record.title, '写方案');
   assert.equal(record.expectedTaskMs, 2 * HOUR);
-  assert.equal(record.taskDurationMs, 50 * MIN);
+  assert.equal(
+    record.taskDurationMs,
+    43 * MIN,
+    'legacy v3 wall-clock duration is corrected to the focus total'
+  );
+  assert.equal(record.taskDurationMs, record.focusTotalMs);
   assert.equal(record.roundsTotal, 3);
   assert.equal(record.roundsWithExpected, 3);
   assert.equal(record.focusTotalMs, 43 * MIN);
   assert.equal(record.expectedFocusTotalMs, 55 * MIN);
   assert.equal(record.avgFocusMs, (43 / 3) * MIN);
   assert.equal(record.dateKey, Core.dateKey(NOW));
+});
+
+test('normalizeRecord: old v3 record with wall-clock duration is corrected', () => {
+  const record = Core.normalizeRecord({
+    title: '旧 v3 墙钟记录',
+    startedAt: NOW - 90 * MIN,
+    endedAt: NOW,
+    taskDurationMs: 90 * MIN, // old buggy value: included pauses
+    focusTotalMs: 45 * MIN,
+    rounds: [
+      { expectedMs: 25 * MIN, actualMs: 25 * MIN },
+      { expectedMs: 20 * MIN, actualMs: 20 * MIN },
+    ],
+  });
+  assert.equal(record.focusTotalMs, 45 * MIN);
+  assert.equal(record.taskDurationMs, 45 * MIN, 'corrected to the sum of round focus');
+  assert.equal(record.taskDurationMs, record.focusTotalMs);
+  assert.equal(record.startedAt, NOW - 90 * MIN, 'startedAt kept for the time range');
+  assert.equal(record.endedAt, NOW, 'endedAt kept for the time range');
 });
 
 test('normalizeRecord: rejects missing title / timestamps / zero focus', () => {
@@ -1022,16 +1120,17 @@ test('recordMetrics: focus target weighted by roundsWithExpected, not roundsTota
 });
 
 test('recordMetrics: faster than expected is positive, slower is negative', () => {
+  // task duration is now always the sum of the rounds, so build it from rounds
   const fast = Core.recordMetrics(
-    makeRecordFixture({ expectedTaskMs: 2 * HOUR, taskDurationMs: 30 * MIN })
+    makeRecordFixture({ expectedTaskMs: 2 * HOUR, rounds: [{ actualMs: 30 * MIN }] })
   );
   assert.equal(fast.taskDeltaMs, 90 * MIN);
   const slow = Core.recordMetrics(
-    makeRecordFixture({ expectedTaskMs: 30 * MIN, taskDurationMs: 2 * HOUR })
+    makeRecordFixture({ expectedTaskMs: 30 * MIN, rounds: [{ actualMs: 2 * HOUR }] })
   );
   assert.equal(slow.taskDeltaMs, -90 * MIN);
   const equal = Core.recordMetrics(
-    makeRecordFixture({ expectedTaskMs: HOUR, taskDurationMs: HOUR })
+    makeRecordFixture({ expectedTaskMs: HOUR, rounds: [{ actualMs: HOUR }] })
   );
   assert.equal(equal.taskDeltaMs, 0);
 });
@@ -1152,15 +1251,19 @@ test('summarize: aggregates today only, keeps overall total', () => {
   assertClose(summary.today.avgFocusMs, (50 / 3) * MIN, 'today average focus');
   assertClose(summary.today.expectedFocusAvgMs, (55 / 3) * MIN, 'today expected average focus');
   assert.equal(summary.today.expectedTaskMs, 90 * MIN);
-  assert.equal(summary.today.taskDurationMs, 60 * MIN);
-  assert.equal(summary.today.taskDeltaMs, 30 * MIN);
+  assert.equal(
+    summary.today.taskDurationMs,
+    50 * MIN,
+    '40 min + 10 min of actual focus (pauses excluded)'
+  );
+  assert.equal(summary.today.taskDeltaMs, 40 * MIN, '90 min expected - 50 min focus sum');
   assert.equal(summary.today.roundsWithExpected, 3);
 
   assert.equal(summary.total.tasks, 3);
   assert.equal(summary.total.rounds, 4);
   assert.equal(summary.total.focusMs, 70 * MIN);
   assert.equal(summary.total.expectedTaskMs, 150 * MIN);
-  assert.equal(summary.total.taskDurationMs, 90 * MIN);
+  assert.equal(summary.total.taskDurationMs, 70 * MIN, '40 + 10 + 20 min of actual focus');
 
   assert.equal(summary.last7[6].ms, 50 * MIN, 'today bar');
   assert.equal(summary.last7[5].ms, 20 * MIN, 'yesterday bar');
@@ -1431,16 +1534,19 @@ test('integration: refresh recovery keeps rounds, then the record stays honest',
   assert.equal(reloaded.rounds[1].actualMs, 5 * MIN, 'savedAt - roundStartedAt');
   assert.equal(reloaded.rounds[1].expectedMs, 15 * MIN);
 
-  // finish at +50 (wall clock keeps counting while paused)
+  // finish at +50: the paused intervals must not count into the task duration
   const record = Core.completeSession(reloaded, t0 + 50 * MIN);
   assert.equal(record.roundsTotal, 2);
   assert.equal(record.focusTotalMs, 17 * MIN);
-  assert.equal(record.taskDurationMs, 50 * MIN);
+  assert.equal(record.taskDurationMs, 17 * MIN, 'task duration = sum of round focus');
+  assert.equal(record.taskDurationMs, record.focusTotalMs);
   assert.equal(record.expectedTaskMs, HOUR);
+  assert.equal(record.startedAt, t0);
+  assert.equal(record.endedAt, t0 + 50 * MIN, 'wall-clock range still recorded for display');
   const metrics = Core.recordMetrics(record);
   assert.equal(metrics.avgFocusMs, 8.5 * MIN);
   assert.equal(metrics.expectedFocusAvgMs, 17.5 * MIN);
-  assert.equal(metrics.taskDeltaMs, HOUR - 50 * MIN);
+  assert.equal(metrics.taskDeltaMs, HOUR - 17 * MIN);
 
   // the persisted record can be summarised as today's activity
   const records = Core.addRecord(Core.loadRecords(storage), record);

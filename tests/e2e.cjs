@@ -858,7 +858,7 @@ async function s3_startModal() {
   assertEq(state.avgFocus, '—', '尚无平均每轮');
   assertEq(state.taskElapsed, '0 秒', '任务耗时 0 秒');
   assertEq(state.rounds, '0 轮', '已完成轮次 0');
-  assertEq(state.taskMeta, '任务预期 1 小时 · 已耗时 0 秒（含暂停）', '任务耗时含暂停提示');
+  assertEq(state.taskMeta, '任务耗时 实际 0 秒 / 预期 1 小时', '任务耗时 meta（实际/预期，不含暂停）');
   assertEq(state.pauseText, '暂停', '运行态暂停按钮');
   assertEq(state.controls.join('|'), '暂停|下一轮|完成任务', '运行态三个按钮');
   assertEq(state.nextPanelVisible, false, '运行态隐藏下一轮预期面板');
@@ -888,7 +888,7 @@ async function s4_mainFlow() {
   assertEq(state.timerSub, '本轮预期 15 分钟 · 还剩 10:00', '剩余时间提示');
   assertEq(state.roundFocus, '5 分钟', '本轮专注统计');
   assertEq(state.taskElapsed, '5 分钟', '任务耗时统计');
-  assertEq(state.taskMeta, '任务预期 2 小时 · 已耗时 5 分钟（含暂停）', '任务耗时（含暂停）');
+  assertEq(state.taskMeta, '任务耗时 实际 5 分钟 / 预期 2 小时', '任务耗时 meta（实际/预期，不含暂停）');
   assertEq(state.rounds, '0 轮', '本轮未结束不计轮次');
   assertEq(state.title, '05:00 · 写方案', '页面标题显示计时');
 
@@ -919,7 +919,8 @@ async function s4_mainFlow() {
   assertEq(state.rounds, '1 轮', '暂停计为一轮');
   assertEq(state.roundFocus, '18 分钟', '本轮实际专注');
   assertEq(state.avgFocus, '18 分钟', '平均每轮专注');
-  assertEq(state.taskElapsed, '18 分钟', '任务耗时');
+  assertEq(state.taskElapsed, '18 分钟', '任务耗时 = 第 1 轮专注和');
+  assertEq(state.taskMeta, '任务耗时 实际 18 分钟 / 预期 2 小时', '暂停态任务耗时 meta');
   assertEq(state.controls.join('|'), '继续|完成任务', '暂停态两个按钮');
   assertEq(state.nextHidden, true, '暂停态隐藏下一轮按钮');
   assertEq(state.nextPanelVisible, true, '暂停态显示下一轮预期面板');
@@ -932,11 +933,12 @@ async function s4_mainFlow() {
   await clearToasts();
   await shot('v3-desktop-paused.png');
 
-  /* task duration keeps running while paused; focus time does not */
-  log('暂停中推进 7 分钟，验证任务耗时包含暂停而专注不增长');
+  /* task duration excludes pause time: 7 paused minutes must not accumulate */
+  log('暂停中推进 7 分钟，验证任务耗时不增长（只含专注）');
   await advance(7 * MIN);
   state = await sessionState();
-  assertEq(state.taskElapsed, '25 分钟', '任务耗时包含暂停（18+7）');
+  assertEq(state.taskElapsed, '18 分钟', '暂停 7 分钟不计入任务耗时');
+  assertEq(state.taskMeta, '任务耗时 实际 18 分钟 / 预期 2 小时', '暂停期间任务耗时 meta 不变');
   assertEq(state.roundFocus, '18 分钟', '暂停期间本轮专注不增长');
   assertEq(state.rounds, '1 轮', '暂停期间轮次不变');
   assertEq(state.timeDisplay, '18:00', '暂停期间计时冻结');
@@ -973,7 +975,7 @@ async function s4_mainFlow() {
   assertEq(state.timeDisplay, '00:00', '新一轮从 0 计时');
   assertEq(state.rounds, '1 轮', '轮次保留');
   assertEq(state.avgFocus, '18 分钟', '平均每轮保留');
-  assertEq(state.taskElapsed, '25 分钟', '任务耗时跨轮累计');
+  assertEq(state.taskElapsed, '18 分钟', '暂停 7 分钟不计入任务耗时（继续后仍 18 分钟）');
   session = await storage('focus.session.v3');
   assertEq(session.expectedFocusMs, 20 * MIN, '存储本轮预期 20 分钟');
   assertEq(session.rounds.length, 1, '存储轮次 1');
@@ -994,7 +996,7 @@ async function s4_mainFlow() {
   assertEq(state.timeDisplay, '00:00', '第 3 轮从 0 开始');
   assertEq(state.timerSub, '本轮预期 20 分钟 · 还剩 20:00', '第 3 轮沿用当前预期');
   assertEq(state.avgFocus, '20 分钟', '两轮平均专注 (18+21)/2≈19.5→20');
-  assertEq(state.taskElapsed, '46 分钟', '任务耗时 46 分钟');
+  assertEq(state.taskElapsed, '39 分钟', '任务耗时 = 第 1 轮 18 + 第 2 轮 21 分钟专注');
   session = await storage('focus.session.v3');
   assertEq(session.rounds.length, 2, '存储中 2 轮');
   assertEq(session.rounds[1].actualMs, 21 * MIN, '第 2 轮实际 21 分钟');
@@ -1002,14 +1004,20 @@ async function s4_mainFlow() {
   /* complete the task → confirmation modal with expected vs actual */
   log('第 3 轮 4 分钟 → 完成任务');
   await advance(4 * MIN);
+  state = await sessionState();
+  assertEq(state.taskElapsed, '43 分钟', '完成任务前：任务耗时 = 各轮专注和 43 分钟');
   await click('#completeBtn');
   await waitModal();
   const modal = await modalInfo();
   assertEq(modal.title, '完成任务并保存记录？', '完成弹窗标题');
   assertIncludes(modal.body, '「写方案」', '完成弹窗任务名');
-  assertIncludes(modal.body, '任务耗时：实际 50 分钟 / 预期 2 小时（快 1 小时 10 分钟）', '完成弹窗任务耗时对比');
+  assertIncludes(
+    modal.body,
+    '任务耗时：实际 43 分钟 / 预期 2 小时（快 1 小时 17 分钟）',
+    '完成弹窗任务耗时对比（不含暂停）'
+  );
   assertIncludes(modal.body, '专注：3 轮 · 共 43 分钟 · 平均 14 分钟/轮（预期 18 分钟）', '完成弹窗专注对比');
-  assertIncludes(modal.body, '任务耗时包含轮间暂停', '完成弹窗说明');
+  assertIncludes(modal.body, '任务耗时按各轮实际专注累计，不含暂停', '完成弹窗说明');
   assertEq(modal.confirm, '保存记录', '完成弹窗确认按钮');
   await clearToasts();
   await shot('v3-desktop-complete-modal.png');
@@ -1027,7 +1035,8 @@ async function s4_mainFlow() {
   assertEq(record.roundsWithExpected, 3, '记录 3 轮均有预期');
   assertEq(record.focusTotalMs, 43 * MIN, '记录总专注 43 分钟');
   assertEq(record.expectedFocusTotalMs, 55 * MIN, '记录预期专注合计 55 分钟');
-  assertEq(record.taskDurationMs, 50 * MIN, '记录任务耗时 50 分钟（含暂停）');
+  assertEq(record.taskDurationMs, 43 * MIN, '记录任务耗时 = 各轮专注和 43 分钟');
+  assertEq(record.taskDurationMs, record.focusTotalMs, '记录任务耗时等于总专注（不含暂停）');
   assertEq(record.expectedTaskMs, 120 * MIN, '记录任务预期 2 小时');
   assertEq(record.avgFocusMs, (43 / 3) * MIN, '记录平均专注 43/3 分钟');
   assertEq(record.rounds[0].actualMs, 18 * MIN, '记录第 1 轮 18 分钟');
@@ -1051,8 +1060,8 @@ async function s4_mainFlow() {
     '记录时间段/轮次/总专注'
   );
   assertEq(nodes[0].metrics[0].label, '任务耗时', '记录任务耗时行');
-  assertEq(nodes[0].metrics[0].value, '实际 50 分钟 / 预期 2 小时', '记录任务耗时值');
-  assertEq(nodes[0].metrics[0].delta, '快 1 小时 10 分钟', '记录任务耗时差异');
+  assertEq(nodes[0].metrics[0].value, '实际 43 分钟 / 预期 2 小时', '记录任务耗时值（不含暂停）');
+  assertEq(nodes[0].metrics[0].delta, '快 1 小时 17 分钟', '记录任务耗时差异');
   assertIncludes(nodes[0].metrics[0].deltaClass, 'is-good', '任务更快显示绿色差异');
   assertEq(nodes[0].metrics[1].label, '专注均值', '记录专注均值行');
   assertEq(nodes[0].metrics[1].value, '平均 14 分钟 / 轮 · 预期 18 分钟', '记录专注均值');
@@ -1068,9 +1077,9 @@ async function s4_mainFlow() {
   assertEq(await text('#statTodayTasksNote'), '共 3 轮', '今日完成任务轮次');
   assertEq(await text('#statStreak'), '1', '连续专注 1 天');
   assertEq(await text('#totalNote'), '今天 1 个任务', '今日概览提示');
-  assertEq(await text('#effTaskActual'), '50 分钟', '效率对比任务实际');
+  assertEq(await text('#effTaskActual'), '43 分钟', '效率对比任务实际（不含暂停）');
   assertEq(await text('#effTaskExpected'), '2 小时', '效率对比任务预期');
-  assertEq(await text('#effTaskDelta'), '快 1 小时 10 分钟', '效率对比任务差异');
+  assertEq(await text('#effTaskDelta'), '快 1 小时 17 分钟', '效率对比任务差异');
   assertIncludes(await attr('#effTaskDelta', 'class'), 'is-good', '任务差异颜色');
   assertEq(await text('#effFocusActual'), '14 分钟', '效率对比专注实际');
   assertEq(await text('#effFocusExpected'), '18 分钟', '效率对比专注预期');
@@ -1242,7 +1251,8 @@ async function s6_concurrencyResumeRefresh() {
   assertEq(state.rounds, '2 轮', '刷新恢复轮次数');
   assertEq(state.roundFocus, '2 分钟', '刷新恢复当前轮实际时长');
   assertEq(state.timerSub, '本轮实际 2 分钟 / 预期 15 分钟', '刷新恢复实际/预期');
-  assertEq(state.taskElapsed, '5 分钟', '刷新恢复任务耗时');
+  assertEq(state.taskElapsed, '5 分钟', '刷新恢复任务耗时 = 两轮专注 3+2 分钟');
+  assertEq(state.taskMeta, '任务耗时 实际 5 分钟 / 预期 2 小时', '刷新恢复任务耗时 meta');
   const restoredSession = await storage('focus.session.v3');
   assertEq(restoredSession.phase, 'paused', '存储会话恢复为 paused');
   assertEq(restoredSession.rounds.length, 2, '存储保留 2 轮');
@@ -1384,10 +1394,11 @@ async function s7_keyboardShortcuts() {
   const record = records[0];
   assertEq(record.roundsTotal, 3, '快捷键流程 3 轮');
   assertEq(record.focusTotalMs, 10 * MIN, '快捷键流程总专注 10 分钟');
-  assertEq(record.taskDurationMs, 12 * MIN, '快捷键流程任务耗时 12 分钟（含暂停）');
+  assertEq(record.taskDurationMs, 10 * MIN, '快捷键流程任务耗时 = 专注和 10 分钟（不含暂停）');
+  assertEq(record.taskDurationMs, record.focusTotalMs, '快捷键记录任务耗时等于总专注');
   const nodes = await recordNodes();
-  assertEq(nodes[0].metrics[0].value, '实际 12 分钟 / 预期 1 小时', '快捷键记录任务耗时');
-  assertEq(nodes[0].metrics[0].delta, '快 48 分钟', '快捷键记录任务差异');
+  assertEq(nodes[0].metrics[0].value, '实际 10 分钟 / 预期 1 小时', '快捷键记录任务耗时（不含暂停）');
+  assertEq(nodes[0].metrics[0].delta, '快 50 分钟', '快捷键记录任务差异');
   assertEq(nodes[0].metrics[1].value, '平均 3 分钟 / 轮 · 预期 10 分钟', '快捷键记录专注均值');
   assertEq(nodes[0].metrics[1].delta, '-7 分钟', '快捷键记录专注差异');
 }

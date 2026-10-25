@@ -5,7 +5,7 @@
  *   - A task is a todo item with an expected completion duration.
  *   - Working on a task is split into focus rounds. Each round has its own
  *     planned focus duration and actual focused time; the task duration is the
- *     wall-clock time from first focus start to completion (includes pauses).
+ *     sum of actual focus time across rounds (pause intervals excluded).
  *   - Reaching a round's planned focus duration never stops anything.
  *   - Pause ends a round (counted), the task stays active; resume starts a new round.
  *   - Completing a task records expected vs actual task duration, per-round focus
@@ -284,10 +284,15 @@
     return rounds > 0 ? getFocusTotalMs(session) / rounds : 0;
   }
 
+  /**
+   * Actual time spent on the task: finished rounds + the current round.
+   * Pause intervals are NOT included (in contrast to the wall-clock span
+   * between startedAt and endedAt, which is only used as a time range).
+   */
   function getTaskElapsedMs(session, now) {
     if (!session) return 0;
     const nowValue = isNum(now) ? now : Date.now();
-    return Math.max(0, nowValue - session.startedAt);
+    return getFocusTotalMs(session) + getRoundElapsedMs(session, nowValue);
   }
 
   function getRoundExpectedMs(session) {
@@ -427,7 +432,8 @@
       (sum, r) => sum + (isNum(r.expectedMs) ? r.expectedMs : 0),
       0
     );
-    const taskDurationMs = Math.max(focusTotalMs, Math.max(0, nowValue - session.startedAt));
+    // Task duration = accumulated actual focus time across rounds (pauses excluded).
+    const taskDurationMs = focusTotalMs;
 
     return {
       v: VERSION,
@@ -526,12 +532,9 @@
       : rounds.reduce((sum, round) => sum + (isNum(round.expectedMs) ? round.expectedMs : 0), 0);
     expectedFocusTotalMs = Math.max(0, expectedFocusTotalMs);
 
-    let taskDurationMs = isNum(raw.taskDurationMs)
-      ? raw.taskDurationMs
-      : isNum(raw.totalFocusedMs)
-      ? raw.totalFocusedMs
-      : focusTotalMs;
-    taskDurationMs = Math.max(focusTotalMs, taskDurationMs);
+    // v3.x compatibility: older v3 records may have stored wall-clock duration
+    // (including pauses); task duration is always the sum of round focus time.
+    const taskDurationMs = Math.round(focusTotalMs);
 
     return {
       v: VERSION,
